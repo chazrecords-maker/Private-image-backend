@@ -1,11 +1,5 @@
 {
   "name": "private-image-backend",
   "main": "src/index.js",
-  "compatibility_date": "2026-01-04",
-  "routes": [
-    {
-      "pattern": "private-image-backend.chazrecords.workers.dev/*",
-      "zone_name": "workers.dev"
-    }
-  ]
+  "compatibility_date": "2026-01-04"
 }
