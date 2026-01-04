@@ -1,5 +1,5 @@
 export default {
-  async fetch(req) {
+  async fetch(request, env, ctx) {
     const url = new URL(req.url);
 
     const USER = "JukeBox$@1414";
