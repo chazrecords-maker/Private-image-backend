@@ -4,7 +4,7 @@ export default {
 
     const USER = "JukeBox$@1414";
     const PASS = "CkXkEriii$@845181";
-    const HF_TOKEN = "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";
+    const HF_TOKEN = HF_TOKEN;
 
     if (url.pathname === "/login" && req.method === "POST") {
       const { username, password } = await req.json();
