@@ -1,5 +1,5 @@
 {
   "name": "private-image-backend",
-  "main": "src/index.js",
-  "compatibility_date": "2026-01-04"
+  "compatibility_date": "2026-01-04",
+  "main": "worker.js"
 }
