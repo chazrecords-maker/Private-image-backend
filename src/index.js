@@ -2,29 +2,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // --------------------
-    // Root help page
-    // --------------------
-    if (url.pathname === "/") {
-      return new Response(
-        `Private Image Worker is running.
-
-Available endpoints:
-GET  /health
-POST /generate
-
-Authenticate using Basic Auth.`,
-        { headers: { "Content-Type": "text/plain" } }
-      );
-    }
-
-    // --------------------
-    // Health check
-    // --------------------
+    // -------------------------
+    // Health check (no auth)
+    // -------------------------
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
           status: "OK",
+          message: "Worker is reachable and running",
           hasUser: !!env.APP_USER,
           hasPass: !!env.APP_PASS,
           hasHF: !!env.HF_TOKEN
@@ -33,14 +18,16 @@ Authenticate using Basic Auth.`,
       );
     }
 
-    // --------------------
+    // -------------------------
     // Basic Auth
-    // --------------------
+    // -------------------------
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
+        headers: {
+          "WWW-Authenticate": 'Basic realm="Private Image App"'
+        }
       });
     }
 
@@ -51,18 +38,22 @@ Authenticate using Basic Auth.`,
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // --------------------
+    // -------------------------
     // Image generation
-    // --------------------
+    // -------------------------
     if (url.pathname === "/generate" && request.method === "POST") {
       const prompt = await request.text();
 
+      if (!prompt) {
+        return new Response("Prompt required", { status: 400 });
+      }
+
       const hfResponse = await fetch(
-        "https://router.huggingface.co/models/YOUR_MODEL_NAME",
+        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${env.HF_TOKEN}`,
+            "Authorization": `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({ inputs: prompt })
@@ -70,7 +61,10 @@ Authenticate using Basic Auth.`,
       );
 
       if (!hfResponse.ok) {
-        return new Response(await hfResponse.text(), { status: 500 });
+        return new Response(
+          JSON.stringify({ error: await hfResponse.text() }),
+          { status: 500 }
+        );
       }
 
       return new Response(await hfResponse.arrayBuffer(), {
@@ -78,6 +72,12 @@ Authenticate using Basic Auth.`,
       });
     }
 
-    return new Response("Not found", { status: 404 });
+    // -------------------------
+    // Default response
+    // -------------------------
+    return new Response(
+      "Private Image Worker is running.\n\nAvailable endpoints:\nGET  /health\nPOST /generate\n\nAuthenticate using Basic Auth.",
+      { headers: { "Content-Type": "text/plain" } }
+    );
   }
 };
