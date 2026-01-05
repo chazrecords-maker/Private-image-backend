@@ -1,58 +1,83 @@
 export default {
   async fetch(request, env) {
-    const VALID_USER = env.APP_USER;
-    const VALID_PASS = env.APP_PASS;
-    const HF_TOKEN = env.HF_TOKEN;
+    const url = new URL(request.url);
 
-    /* ---------- AUTH ---------- */
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Basic ")) {
+    // --------------------
+    // Root help page
+    // --------------------
+    if (url.pathname === "/") {
+      return new Response(
+        `Private Image Worker is running.
+
+Available endpoints:
+GET  /health
+POST /generate
+
+Authenticate using Basic Auth.`,
+        { headers: { "Content-Type": "text/plain" } }
+      );
+    }
+
+    // --------------------
+    // Health check
+    // --------------------
+    if (url.pathname === "/health") {
+      return new Response(
+        JSON.stringify({
+          status: "OK",
+          hasUser: !!env.APP_USER,
+          hasPass: !!env.APP_PASS,
+          hasHF: !!env.HF_TOKEN
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // --------------------
+    // Basic Auth
+    // --------------------
+    const auth = request.headers.get("Authorization");
+    if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
         headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
       });
     }
 
-    const decoded = atob(authHeader.split(" ")[1]);
+    const decoded = atob(auth.split(" ")[1]);
     const [user, pass] = decoded.split(":");
 
-    if (user !== VALID_USER || pass !== VALID_PASS) {
+    if (user !== env.APP_USER || pass !== env.APP_PASS) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ---------- PROMPT ---------- */
-    const prompt =
-      "Semi-realistic digital illustration, cinematic lighting, high detail, natural proportions, studio quality";
+    // --------------------
+    // Image generation
+    // --------------------
+    if (url.pathname === "/generate" && request.method === "POST") {
+      const prompt = await request.text();
 
-    /* ---------- HF REQUEST ---------- */
-    const hfResponse = await fetch(
-      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${HF_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ inputs: prompt })
-      }
-    );
-
-    if (!hfResponse.ok) {
-      const err = await hfResponse.text();
-      return new Response(
-        JSON.stringify({ error: err }),
-        { status: 500 }
+      const hfResponse = await fetch(
+        "https://router.huggingface.co/models/YOUR_MODEL_NAME",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.HF_TOKEN}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ inputs: prompt })
+        }
       );
+
+      if (!hfResponse.ok) {
+        return new Response(await hfResponse.text(), { status: 500 });
+      }
+
+      return new Response(await hfResponse.arrayBuffer(), {
+        headers: { "Content-Type": "image/png" }
+      });
     }
 
-    const imageBuffer = await hfResponse.arrayBuffer();
-
-    return new Response(imageBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "no-store"
-      }
-    });
+    return new Response("Not found", { status: 404 });
   }
 };
