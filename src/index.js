@@ -41,36 +41,52 @@ export default {
     // -------------------------
     // Image generation
     // -------------------------
-    if (url.pathname === "/generate" && request.method === "POST") {
-      const prompt = await request.text();
+    // -------------------------
+// Image generation
+// -------------------------
+if (url.pathname === "/generate" && request.method === "POST") {
+  let prompt = "";
 
-      if (!prompt) {
-        return new Response("Prompt required", { status: 400 });
-      }
+  try {
+    const contentType = request.headers.get("content-type") || "";
 
-      const hfResponse = await fetch(
-        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ inputs: prompt })
-        }
-      );
-
-      if (!hfResponse.ok) {
-        return new Response(
-          JSON.stringify({ error: await hfResponse.text() }),
-          { status: 500 }
-        );
-      }
-
-      return new Response(await hfResponse.arrayBuffer(), {
-        headers: { "Content-Type": "image/png" }
-      });
+    if (contentType.includes("application/json")) {
+      const data = await request.json();
+      prompt = data.inputs;
+    } else if (contentType.includes("application/x-www-form-urlencoded")) {
+      const form = await request.formData();
+      prompt = form.get("inputs");
+    } else {
+      prompt = await request.text();
     }
+  } catch (e) {
+    return new Response("Invalid request body", { status: 400 });
+  }
+
+  if (!prompt) {
+    return new Response("Prompt missing", { status: 400 });
+  }
+
+  const hfResponse = await fetch(
+    "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ inputs: prompt })
+    }
+  );
+
+  if (!hfResponse.ok) {
+    return new Response(await hfResponse.text(), { status: 500 });
+  }
+
+  return new Response(await hfResponse.arrayBuffer(), {
+    headers: { "Content-Type": "image/png" }
+  });
+}
 
     // -------------------------
     // Default response
