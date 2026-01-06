@@ -1,4 +1,8 @@
-export default {
+if (new URL(request.url).pathname === "/ping") {
+  return new Response("PING OK", {
+    headers: { "Content-Type": "text/plain" }
+  });
+}export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
