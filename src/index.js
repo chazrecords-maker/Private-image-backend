@@ -2,91 +2,68 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* =========================
-       HEALTH CHECK
-    ========================== */
-    if (url.pathname === "/health") {
+    // -----------------------------
+    // BASIC AUTH CHECK
+    // -----------------------------
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Basic ")) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    const base64 = authHeader.replace("Basic ", "");
+    const decoded = atob(base64);
+    const [user, pass] = decoded.split(":");
+
+    if (user !== env.BASIC_USER || pass !== env.BASIC_PASS) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    // -----------------------------
+    // HEALTH CHECK
+    // -----------------------------
+    if (url.pathname === "/health" && request.method === "GET") {
       return new Response(
         JSON.stringify({
           status: "OK",
           message: "Worker is reachable and running",
-          hasUser: !!env.APP_USER,
-          hasPass: !!env.APP_PASS,
-          hasHF: !!env.HF_TOKEN
         }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
-    /* =========================
-       BASIC AUTH
-    ========================== */
-    const auth = request.headers.get("Authorization");
-    if (!auth || !auth.startsWith("Basic ")) {
-      return new Response("Unauthorized", {
-        status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
-      });
-    }
-
-    const decoded = atob(auth.split(" ")[1]);
-    const [user, pass] = decoded.split(":");
-
-    if (user !== env.APP_USER || pass !== env.APP_PASS) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    /* =========================
-       GENERATE ENDPOINT
-    ========================== */
+    // -----------------------------
+    // IMAGE GENERATION
+    // -----------------------------
     if (url.pathname === "/generate" && request.method === "POST") {
       let body;
-
       try {
         body = await request.json();
       } catch {
-        return new Response(
-          JSON.stringify({ error: "Request body must be valid JSON" }),
-          { status: 400 }
-        );
+        return new Response("Invalid JSON", { status: 400 });
       }
 
-      if (!body.inputs || typeof body.inputs !== "string") {
-        return new Response(
-          JSON.stringify({ error: 'Missing "inputs" field' }),
-          { status: 400 }
-        );
+      const prompt = body.inputs;
+      if (!prompt) {
+        return new Response("Missing inputs field", { status: 400 });
       }
 
-      const hfResponse = await fetch(
-        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            inputs: body.inputs
-          })
-        }
+      // Call image model (example: Workers AI)
+      const aiResponse = await env.AI.run(
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        { prompt }
       );
 
-      if (!hfResponse.ok) {
-        return new Response(
-          JSON.stringify({ error: await hfResponse.text() }),
-          { status: 500 }
-        );
-      }
-
-      return new Response(await hfResponse.arrayBuffer(), {
-        headers: { "Content-Type": "image/png" }
+      // aiResponse.image is Uint8Array (PNG bytes)
+      return new Response(aiResponse.image, {
+        headers: {
+          "Content-Type": "image/png",
+        },
       });
     }
 
-    /* =========================
-       FALLBACK
-    ========================== */
+    // -----------------------------
+    // FALLBACK
+    // -----------------------------
     return new Response("Not Found", { status: 404 });
-  }
+  },
 };
