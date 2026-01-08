@@ -2,91 +2,88 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // =========================
-    // BASIC AUTH (ALL ROUTES)
-    // =========================
-    const auth = request.headers.get("Authorization");
-    if (!auth || !auth.startsWith("Basic ")) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    let user, pass;
-    try {
-      const decoded = atob(auth.slice(6));
-      [user, pass] = decoded.split(":");
-    } catch {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    if (user !== env.APP_USER || pass !== env.APP_PASS) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    // =========================
-    // HEALTH CHECK
-    // =========================
+    // -------- HEALTH CHECK --------
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
           status: "OK",
-          message: "Worker is reachable and running"
+          message: "Worker is reachable and running",
+          hasUser: !!env.APP_USER,
+          hasPass: !!env.APP_PASS,
+          hasHF: !!env.HF_TOKEN
         }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // =========================
-    // IMAGE GENERATION
-    // =========================
+    // -------- BASIC AUTH --------
+    const auth = request.headers.get("Authorization");
+    if (!auth || !auth.startsWith("Basic ")) {
+      return new Response("Unauthorized", {
+        status: 401,
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
+      });
+    }
+
+    const decoded = atob(auth.split(" ")[1]);
+    const [user, pass] = decoded.split(":");
+
+    if (user !== env.APP_USER || pass !== env.APP_PASS) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    // -------- GENERATE IMAGE --------
     if (url.pathname === "/generate" && request.method === "POST") {
       let body;
       try {
         body = await request.json();
       } catch {
-        return new Response("Invalid JSON", { status: 400 });
+        return new Response(
+          JSON.stringify({ error: "Invalid JSON body" }),
+          { status: 400 }
+        );
       }
 
       if (!body.inputs) {
-        return new Response("Missing inputs field", { status: 400 });
+        return new Response(
+          JSON.stringify({ error: "Missing 'inputs' field" }),
+          { status: 400 }
+        );
       }
 
-      // ---- Hugging Face image inference ----
-      const hf = await fetch(
-        "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
+      const hfResponse = await fetch(
+        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
-            "Content-Type": "application/json",
-            "Accept": "image/png"
+            Authorization: `Bearer ${env.HF_TOKEN}`,
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            inputs: body.inputs
+            inputs: body.inputs,
+            parameters: {
+              guidance_scale: 7.5,
+              num_inference_steps: 30
+            }
           })
         }
       );
 
-      if (!hf.ok) {
-        return new Response(await hf.text(), { status: 500 });
+      if (!hfResponse.ok) {
+        return new Response(
+          await hfResponse.text(),
+          { status: 500 }
+        );
       }
 
-      // 🔑 THIS IS THE CRITICAL PART
-      // Return RAW IMAGE BYTES — NOT JSON
-      const imageBytes = await hf.arrayBuffer();
-
-      return new Response(imageBytes, {
-        headers: {
-          "Content-Type": "image/png",
-          "Cache-Control": "no-store"
-        }
+      return new Response(await hfResponse.arrayBuffer(), {
+        headers: { "Content-Type": "image/png" }
       });
     }
 
-    // =========================
-    // FALLBACK
-    // =========================
+    // -------- FALLBACK --------
     return new Response(
-      "Private Image Worker is running.\nGET /health\nPOST /generate",
+      "Private Image Worker is running.\n\nAvailable endpoints:\nGET  /health\nPOST /generate",
       { status: 200 }
     );
   }
