@@ -16,7 +16,7 @@ export default {
       );
     }
 
-    // -------- BASIC AUTH --------
+    // -------- AUTH --------
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -38,21 +38,15 @@ export default {
       try {
         body = await request.json();
       } catch {
-        return new Response(
-          JSON.stringify({ error: "Invalid JSON body" }),
-          { status: 400 }
-        );
+        return new Response("Invalid JSON body", { status: 400 });
       }
 
       if (!body.inputs) {
-        return new Response(
-          JSON.stringify({ error: "Missing 'inputs' field" }),
-          { status: 400 }
-        );
+        return new Response("Missing inputs field", { status: 400 });
       }
 
-      const hfResponse = await fetch(
-        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+      const hf = await fetch(
+        "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
@@ -60,31 +54,26 @@ export default {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            inputs: body.inputs,
-            parameters: {
-              guidance_scale: 7.5,
-              num_inference_steps: 30
-            }
+            inputs: body.inputs
           })
         }
       );
 
-      if (!hfResponse.ok) {
-        return new Response(
-          await hfResponse.text(),
-          { status: 500 }
-        );
+      if (!hf.ok) {
+        return new Response(await hf.text(), { status: 500 });
       }
 
-      return new Response(await hfResponse.arrayBuffer(), {
-        headers: { "Content-Type": "image/png" }
+      const imageBuffer = await hf.arrayBuffer();
+
+      return new Response(imageBuffer, {
+        headers: {
+          "Content-Type": "image/png",
+          "Content-Disposition": "inline"
+        }
       });
     }
 
     // -------- FALLBACK --------
-    return new Response(
-      "Private Image Worker is running.\n\nAvailable endpoints:\nGET  /health\nPOST /generate",
-      { status: 200 }
-    );
+    return new Response("Not Found", { status: 404 });
   }
 };
