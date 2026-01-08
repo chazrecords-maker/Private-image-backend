@@ -3,25 +3,7 @@ export default {
     const url = new URL(request.url);
 
     /* ===============================
-       HEALTH CHECK
-    =============================== */
-    if (url.pathname === "/health") {
-      return new Response(
-        JSON.stringify({
-          status: "OK",
-          message: "Worker is reachable and running",
-          hasUser: !!env.APP_USER,
-          hasPass: !!env.APP_PASS,
-          hasHF: !!env.HF_TOKEN
-        }),
-        {
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }
-
-    /* ===============================
-       BASIC AUTH
+       BASIC AUTH (UI + API)
     =============================== */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
@@ -46,27 +28,117 @@ export default {
     }
 
     /* ===============================
+       HEALTH
+    =============================== */
+    if (url.pathname === "/health") {
+      return new Response(
+        JSON.stringify({
+          status: "OK",
+          hasUser: !!env.APP_USER,
+          hasPass: !!env.APP_PASS,
+          hasHF: !!env.HF_TOKEN
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    /* ===============================
+       UI (HOME PAGE)
+    =============================== */
+    if (url.pathname === "/") {
+      return new Response(
+        `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Private Image Generator</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #111;
+      color: #eee;
+      max-width: 700px;
+      margin: auto;
+      padding: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 120px;
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 10px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 16px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    img {
+      margin-top: 20px;
+      max-width: 100%;
+      border: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <h2>Private Image Generator</h2>
+
+  <textarea id="prompt" placeholder="Describe the image..."></textarea>
+  <br />
+  <button onclick="generate()">Generate</button>
+
+  <div id="status"></div>
+  <img id="result" />
+
+<script>
+async function generate() {
+  const prompt = document.getElementById("prompt").value;
+  document.getElementById("status").innerText = "Generating...";
+  document.getElementById("result").src = "";
+
+  const res = await fetch("/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ inputs: prompt })
+  });
+
+  if (!res.ok) {
+    document.getElementById("status").innerText = "Error generating image";
+    return;
+  }
+
+  const blob = await res.blob();
+  document.getElementById("result").src = URL.createObjectURL(blob);
+  document.getElementById("status").innerText = "";
+}
+</script>
+</body>
+</html>
+        `,
+        { headers: { "Content-Type": "text/html" } }
+      );
+    }
+
+    /* ===============================
        GENERATE IMAGE
     =============================== */
     if (url.pathname === "/generate" && request.method === "POST") {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
+      const body = await request.json();
+
+      if (!body.inputs) {
         return new Response(
-          JSON.stringify({ error: "Invalid JSON body" }),
+          JSON.stringify({ error: "Missing inputs" }),
           { status: 400, headers: { "Content-Type": "application/json" } }
         );
       }
 
-      if (!body.inputs || typeof body.inputs !== "string") {
-        return new Response(
-          JSON.stringify({ error: "Missing 'inputs' field" }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      // Hugging Face request
       const hfResponse = await fetch(
         "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
@@ -75,44 +147,22 @@ export default {
             "Authorization": `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            inputs: body.inputs
-          })
+          body: JSON.stringify({ inputs: body.inputs })
         }
       );
 
-      // If HF returns an error, return readable JSON (NOT image)
       if (!hfResponse.ok) {
-        const errorText = await hfResponse.text();
         return new Response(
-          JSON.stringify({
-            error: "Image generation failed",
-            details: errorText
-          }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" }
-          }
+          JSON.stringify({ error: await hfResponse.text() }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
 
-      // SUCCESS: return raw image bytes
-      const imageBuffer = await hfResponse.arrayBuffer();
-
-      return new Response(imageBuffer, {
-        headers: {
-          "Content-Type": "image/png",
-          "Cache-Control": "no-store"
-        }
+      return new Response(await hfResponse.arrayBuffer(), {
+        headers: { "Content-Type": "image/png" }
       });
     }
 
-    /* ===============================
-       FALLBACK
-    =============================== */
-    return new Response(
-      "Private Image Worker is running.\n\nAvailable endpoints:\nGET  /health\nPOST /generate",
-      { headers: { "Content-Type": "text/plain" } }
-    );
+    return new Response("Not found", { status: 404 });
   }
 };
