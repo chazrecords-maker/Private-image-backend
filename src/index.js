@@ -2,9 +2,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ===============================
-       BASIC AUTH (UI + API)
-    =============================== */
+    /* =========================
+       BASIC AUTH (required)
+    ========================= */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -20,16 +20,16 @@ export default {
       const decoded = atob(auth.split(" ")[1]);
       [user, pass] = decoded.split(":");
     } catch {
-      return new Response("Invalid Authorization header", { status: 401 });
+      return new Response("Invalid Authorization", { status: 401 });
     }
 
     if (user !== env.APP_USER || pass !== env.APP_PASS) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ===============================
-       HEALTH
-    =============================== */
+    /* =========================
+       HEALTH CHECK
+    ========================= */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
@@ -42,93 +42,98 @@ export default {
       );
     }
 
-    /* ===============================
-       UI (HOME PAGE)
-    =============================== */
+    /* =========================
+       WEB UI
+    ========================= */
     if (url.pathname === "/") {
-      return new Response(
-        `
+      return new Response(`
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>Private Image Generator</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      background: #111;
-      color: #eee;
-      max-width: 700px;
-      margin: auto;
-      padding: 20px;
-    }
-    textarea {
-      width: 100%;
-      height: 120px;
-      background: #222;
-      color: #fff;
-      border: 1px solid #444;
-      padding: 10px;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px 16px;
-      background: #4f46e5;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-    img {
-      margin-top: 20px;
-      max-width: 100%;
-      border: 1px solid #333;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>Private Image Generator</title>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background: #0f0f0f;
+  color: #eee;
+  max-width: 720px;
+  margin: auto;
+  padding: 20px;
+}
+textarea {
+  width: 100%;
+  height: 120px;
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #444;
+  padding: 10px;
+}
+button {
+  margin-top: 10px;
+  padding: 10px 16px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+img {
+  margin-top: 20px;
+  max-width: 100%;
+  border: 1px solid #333;
+}
+#status {
+  margin-top: 10px;
+  color: #aaa;
+}
+</style>
 </head>
+
 <body>
-  <h2>Private Image Generator</h2>
+<h2>Private Image Generator</h2>
 
-  <textarea id="prompt" placeholder="Describe the image..."></textarea>
-  <br />
-  <button onclick="generate()">Generate</button>
+<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<br>
+<button onclick="generate()">Generate</button>
 
-  <div id="status"></div>
-  <img id="result" />
+<div id="status"></div>
+<img id="result">
 
 <script>
 async function generate() {
   const prompt = document.getElementById("prompt").value;
-  document.getElementById("status").innerText = "Generating...";
-  document.getElementById("result").src = "";
+  const status = document.getElementById("status");
+  const img = document.getElementById("result");
+
+  status.innerText = "Generating...";
+  img.src = "";
 
   const res = await fetch("/generate", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ inputs: prompt })
   });
 
   if (!res.ok) {
-    document.getElementById("status").innerText = "Error generating image";
+    status.innerText = "Generation failed";
     return;
   }
 
   const blob = await res.blob();
-  document.getElementById("result").src = URL.createObjectURL(blob);
-  document.getElementById("status").innerText = "";
+  img.src = URL.createObjectURL(blob);
+  status.innerText = "";
 }
 </script>
 </body>
 </html>
-        `,
-        { headers: { "Content-Type": "text/html" } }
-      );
+      `, {
+        headers: { "Content-Type": "text/html" }
+      });
     }
 
-    /* ===============================
-       GENERATE IMAGE
-    =============================== */
+    /* =========================
+       IMAGE GENERATION
+    ========================= */
     if (url.pathname === "/generate" && request.method === "POST") {
       const body = await request.json();
 
@@ -139,30 +144,30 @@ async function generate() {
         );
       }
 
-      const hfResponse = await fetch(
+      const hf = await fetch(
         "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
+            "Authorization": "Bearer " + env.HF_TOKEN,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({ inputs: body.inputs })
         }
       );
 
-      if (!hfResponse.ok) {
+      if (!hf.ok) {
         return new Response(
-          JSON.stringify({ error: await hfResponse.text() }),
+          JSON.stringify({ error: await hf.text() }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
 
-      return new Response(await hfResponse.arrayBuffer(), {
+      return new Response(await hf.arrayBuffer(), {
         headers: { "Content-Type": "image/png" }
       });
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response("Not Found", { status: 404 });
   }
 };
