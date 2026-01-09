@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ================= AUTH ================= */
+    /* ========= BASIC AUTH ========= */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -22,15 +22,17 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ================= HEALTH ================= */
+    /* ========= HEALTH ========= */
     if (url.pathname === "/health") {
       return new Response(JSON.stringify({
         status: "OK",
         hasHF: !!env.HF_TOKEN
-      }), { headers: { "Content-Type": "application/json" } });
+      }), {
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
-    /* ================= UI ================= */
+    /* ========= SIMPLE UI ========= */
     if (url.pathname === "/") {
       return new Response(`<!DOCTYPE html>
 <html>
@@ -38,10 +40,10 @@ export default {
 <meta charset="utf-8">
 <title>Private Image Generator</title>
 <style>
-body { background:#0f0f0f; color:#eee; font-family:sans-serif; max-width:720px; margin:auto; padding:20px }
-textarea { width:100%; height:120px; background:#1a1a1a; color:#fff; border:1px solid #444; padding:10px }
-button { margin-top:10px; padding:10px 16px; background:#6366f1; color:#fff; border:none }
-img { margin-top:20px; max-width:100% }
+body{background:#0f0f0f;color:#eee;font-family:sans-serif;max-width:720px;margin:auto;padding:20px}
+textarea{width:100%;height:120px;background:#1a1a1a;color:#fff;border:1px solid #444;padding:10px}
+button{margin-top:10px;padding:10px 16px;background:#6366f1;color:#fff;border:none}
+img{margin-top:20px;max-width:100%}
 </style>
 </head>
 <body>
@@ -55,34 +57,45 @@ img { margin-top:20px; max-width:100% }
 async function go(){
   const p=document.getElementById("prompt").value;
   document.getElementById("status").innerText="Generating...";
-  const r=await fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs:p})});
-  if(!r.ok){document.getElementById("status").innerText=await r.text();return;}
+  const r=await fetch("/generate",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ prompt:p })
+  });
+  if(!r.ok){
+    document.getElementById("status").innerText=await r.text();
+    return;
+  }
   const b=await r.blob();
   document.getElementById("img").src=URL.createObjectURL(b);
   document.getElementById("status").innerText="";
 }
 </script>
 </body>
-</html>`, { headers: { "Content-Type": "text/html" } });
+</html>`, {
+        headers: { "Content-Type": "text/html" }
+      });
     }
 
-    /* ================= GENERATE ================= */
+    /* ========= IMAGE GENERATION ========= */
     if (url.pathname === "/generate" && request.method === "POST") {
       const body = await request.json();
-      if (!body.inputs) {
-        return new Response("Missing inputs", { status: 400 });
+      if (!body.prompt) {
+        return new Response("Missing prompt", { status: 400 });
       }
 
       const hf = await fetch(
-        "https://router.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+        "https://router.huggingface.co/v1/images/generations",
         {
           method: "POST",
           headers: {
-            "Authorization": "Bearer " + env.HF_TOKEN,
+            "Authorization": `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            inputs: body.inputs
+            model: "black-forest-labs/FLUX.1-schnell",
+            prompt: body.prompt,
+            size: "1024x1024"
           })
         }
       );
@@ -94,7 +107,11 @@ async function go(){
         );
       }
 
-      return new Response(await hf.arrayBuffer(), {
+      const json = await hf.json();
+      const imageBase64 = json.data[0].b64_json;
+      const imageBytes = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0));
+
+      return new Response(imageBytes, {
         headers: { "Content-Type": "image/png" }
       });
     }
