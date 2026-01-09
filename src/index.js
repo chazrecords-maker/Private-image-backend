@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     /* =========================
-       BASIC AUTH (required)
+       BASIC AUTH
     ========================= */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
@@ -34,6 +34,7 @@ export default {
       return new Response(
         JSON.stringify({
           status: "OK",
+          message: "Worker is reachable and running",
           hasUser: !!env.APP_USER,
           hasPass: !!env.APP_PASS,
           hasHF: !!env.HF_TOKEN
@@ -46,8 +47,8 @@ export default {
        WEB UI
     ========================= */
     if (url.pathname === "/") {
-      return new Response(`
-<!DOCTYPE html>
+      return new Response(
+`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -85,6 +86,7 @@ img {
 #status {
   margin-top: 10px;
   color: #aaa;
+  white-space: pre-wrap;
 }
 </style>
 </head>
@@ -115,7 +117,8 @@ async function generate() {
   });
 
   if (!res.ok) {
-    status.innerText = "Generation failed";
+    const text = await res.text();
+    status.innerText = text;
     return;
   }
 
@@ -125,22 +128,26 @@ async function generate() {
 }
 </script>
 </body>
-</html>
-      `, {
-        headers: { "Content-Type": "text/html" }
-      });
+</html>`,
+        { headers: { "Content-Type": "text/html" } }
+      );
     }
 
     /* =========================
        IMAGE GENERATION
     ========================= */
     if (url.pathname === "/generate" && request.method === "POST") {
-      const body = await request.json();
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("Invalid JSON body", { status: 400 });
+      }
 
       if (!body.inputs) {
         return new Response(
-          JSON.stringify({ error: "Missing inputs" }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
+          "Error: missing 'inputs' field",
+          { status: 400, headers: { "Content-Type": "text/plain" } }
         );
       }
 
@@ -152,14 +159,18 @@ async function generate() {
             "Authorization": "Bearer " + env.HF_TOKEN,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ inputs: body.inputs })
+          body: JSON.stringify({
+            inputs: body.inputs,
+            options: { wait_for_model: true }
+          })
         }
       );
 
       if (!hf.ok) {
+        const text = await hf.text();
         return new Response(
-          JSON.stringify({ error: await hf.text() }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
+          "HF ERROR:\n\n" + text,
+          { status: 500, headers: { "Content-Type": "text/plain" } }
         );
       }
 
