@@ -152,7 +152,7 @@ async function generate() {
       }
 
       const hf = await fetch(
-        "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+        "https://router.huggingface.co/models/stabilityai/sdxl-turbo",
         {
           method: "POST",
           headers: {
@@ -160,8 +160,7 @@ async function generate() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            inputs: body.inputs,
-            options: { wait_for_model: true }
+            inputs: body.inputs
           })
         }
       );
