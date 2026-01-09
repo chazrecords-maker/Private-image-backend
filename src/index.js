@@ -2,12 +2,12 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ========= BASIC AUTH ========= */
+    /* ===== BASIC AUTH ===== */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private App"' }
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
       });
     }
 
@@ -15,14 +15,14 @@ export default {
     try {
       [user, pass] = atob(auth.split(" ")[1]).split(":");
     } catch {
-      return new Response("Invalid auth", { status: 401 });
+      return new Response("Invalid Authorization", { status: 401 });
     }
 
     if (user !== env.APP_USER || pass !== env.APP_PASS) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ========= HEALTH ========= */
+    /* ===== HEALTH ===== */
     if (url.pathname === "/health") {
       return new Response(JSON.stringify({
         status: "OK",
@@ -32,9 +32,9 @@ export default {
       });
     }
 
-    /* ========= SIMPLE UI ========= */
+    /* ===== UI ===== */
     if (url.pathname === "/") {
-      return new Response(`<!DOCTYPE html>
+      return new Response(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -50,11 +50,11 @@ img{margin-top:20px;max-width:100%}
 <h2>Private Image Generator</h2>
 <textarea id="prompt" placeholder="Describe the image"></textarea>
 <br>
-<button onclick="go()">Generate</button>
+<button onclick="gen()">Generate</button>
 <div id="status"></div>
-<img id="img">
+<img id="img"/>
 <script>
-async function go(){
+async function gen(){
   const p=document.getElementById("prompt").value;
   document.getElementById("status").innerText="Generating...";
   const r=await fetch("/generate",{
@@ -77,12 +77,10 @@ async function go(){
       });
     }
 
-    /* ========= IMAGE GENERATION ========= */
+    /* ===== GENERATE ===== */
     if (url.pathname === "/generate" && request.method === "POST") {
-      const body = await request.json();
-      if (!body.prompt) {
-        return new Response("Missing prompt", { status: 400 });
-      }
+      const { prompt } = await request.json();
+      if (!prompt) return new Response("Missing prompt", { status: 400 });
 
       const hf = await fetch(
         "https://router.huggingface.co/v1/images/generations",
@@ -93,8 +91,8 @@ async function go(){
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model: "black-forest-labs/FLUX.1-schnell",
-            prompt: body.prompt,
+            model: "stabilityai/sdxl-turbo",
+            prompt,
             size: "1024x1024"
           })
         }
@@ -107,11 +105,11 @@ async function go(){
         );
       }
 
-      const json = await hf.json();
-      const imageBase64 = json.data[0].b64_json;
-      const imageBytes = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0));
+      const data = await hf.json();
+      const img64 = data.data[0].b64_json;
+      const bytes = Uint8Array.from(atob(img64), c => c.charCodeAt(0));
 
-      return new Response(imageBytes, {
+      return new Response(bytes, {
         headers: { "Content-Type": "image/png" }
       });
     }
