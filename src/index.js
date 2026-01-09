@@ -2,157 +2,79 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* =========================
-       BASIC AUTH
-    ========================= */
+    /* ================= AUTH ================= */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: {
-          "WWW-Authenticate": 'Basic realm="Private Image App"'
-        }
+        headers: { "WWW-Authenticate": 'Basic realm="Private App"' }
       });
     }
 
     let user, pass;
     try {
-      const decoded = atob(auth.split(" ")[1]);
-      [user, pass] = decoded.split(":");
+      [user, pass] = atob(auth.split(" ")[1]).split(":");
     } catch {
-      return new Response("Invalid Authorization", { status: 401 });
+      return new Response("Invalid auth", { status: 401 });
     }
 
     if (user !== env.APP_USER || pass !== env.APP_PASS) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* =========================
-       HEALTH CHECK
-    ========================= */
+    /* ================= HEALTH ================= */
     if (url.pathname === "/health") {
-      return new Response(
-        JSON.stringify({
-          status: "OK",
-          message: "Worker is reachable and running",
-          hasUser: !!env.APP_USER,
-          hasPass: !!env.APP_PASS,
-          hasHF: !!env.HF_TOKEN
-        }),
-        { headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({
+        status: "OK",
+        hasHF: !!env.HF_TOKEN
+      }), { headers: { "Content-Type": "application/json" } });
     }
 
-    /* =========================
-       WEB UI
-    ========================= */
+    /* ================= UI ================= */
     if (url.pathname === "/") {
-      return new Response(
-`<!DOCTYPE html>
+      return new Response(`<!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <title>Private Image Generator</title>
 <style>
-body {
-  font-family: system-ui, sans-serif;
-  background: #0f0f0f;
-  color: #eee;
-  max-width: 720px;
-  margin: auto;
-  padding: 20px;
-}
-textarea {
-  width: 100%;
-  height: 120px;
-  background: #1a1a1a;
-  color: #fff;
-  border: 1px solid #444;
-  padding: 10px;
-}
-button {
-  margin-top: 10px;
-  padding: 10px 16px;
-  background: #6366f1;
-  color: white;
-  border: none;
-  cursor: pointer;
-}
-img {
-  margin-top: 20px;
-  max-width: 100%;
-  border: 1px solid #333;
-}
-#status {
-  margin-top: 10px;
-  color: #aaa;
-  white-space: pre-wrap;
-}
+body { background:#0f0f0f; color:#eee; font-family:sans-serif; max-width:720px; margin:auto; padding:20px }
+textarea { width:100%; height:120px; background:#1a1a1a; color:#fff; border:1px solid #444; padding:10px }
+button { margin-top:10px; padding:10px 16px; background:#6366f1; color:#fff; border:none }
+img { margin-top:20px; max-width:100% }
 </style>
 </head>
-
 <body>
 <h2>Private Image Generator</h2>
-
-<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<textarea id="prompt" placeholder="Describe the image"></textarea>
 <br>
-<button onclick="generate()">Generate</button>
-
+<button onclick="go()">Generate</button>
 <div id="status"></div>
-<img id="result">
-
+<img id="img">
 <script>
-async function generate() {
-  const prompt = document.getElementById("prompt").value;
-  const status = document.getElementById("status");
-  const img = document.getElementById("result");
-
-  status.innerText = "Generating...";
-  img.src = "";
-
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs: prompt })
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    status.innerText = text;
-    return;
-  }
-
-  const blob = await res.blob();
-  img.src = URL.createObjectURL(blob);
-  status.innerText = "";
+async function go(){
+  const p=document.getElementById("prompt").value;
+  document.getElementById("status").innerText="Generating...";
+  const r=await fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs:p})});
+  if(!r.ok){document.getElementById("status").innerText=await r.text();return;}
+  const b=await r.blob();
+  document.getElementById("img").src=URL.createObjectURL(b);
+  document.getElementById("status").innerText="";
 }
 </script>
 </body>
-</html>`,
-        { headers: { "Content-Type": "text/html" } }
-      );
+</html>`, { headers: { "Content-Type": "text/html" } });
     }
 
-    /* =========================
-       IMAGE GENERATION
-    ========================= */
+    /* ================= GENERATE ================= */
     if (url.pathname === "/generate" && request.method === "POST") {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return new Response("Invalid JSON body", { status: 400 });
-      }
-
+      const body = await request.json();
       if (!body.inputs) {
-        return new Response(
-          "Error: missing 'inputs' field",
-          { status: 400, headers: { "Content-Type": "text/plain" } }
-        );
+        return new Response("Missing inputs", { status: 400 });
       }
 
       const hf = await fetch(
-        "https://router.huggingface.co/models/stabilityai/sdxl-turbo",
+        "https://router.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
         {
           method: "POST",
           headers: {
@@ -166,10 +88,9 @@ async function generate() {
       );
 
       if (!hf.ok) {
-        const text = await hf.text();
         return new Response(
-          "HF ERROR:\n\n" + text,
-          { status: 500, headers: { "Content-Type": "text/plain" } }
+          "HF ERROR:\n" + await hf.text(),
+          { status: 500 }
         );
       }
 
