@@ -7,7 +7,7 @@ export default {
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private App"' },
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' },
       });
     }
 
@@ -21,7 +21,7 @@ export default {
       return new Response(
         JSON.stringify({
           status: "OK",
-          hfTokenPresent: !!env.HF_TOKEN,
+          hfToken: !!env.HF_TOKEN,
         }),
         { headers: { "Content-Type": "application/json" } }
       );
@@ -35,14 +35,20 @@ export default {
       }
 
       const hf = await fetch(
-        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+        "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
+            Authorization: `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ inputs: body.inputs }),
+          body: JSON.stringify({
+            inputs: body.inputs,
+            parameters: {
+              width: 1024,
+              height: 1024,
+            },
+          }),
         }
       );
 
@@ -58,27 +64,40 @@ export default {
       });
     }
 
-    // ---------- UI ----------
+    // ---------- SIMPLE UI ----------
     return new Response(`
 <!doctype html>
 <html>
+<head>
+<title>Private Image Generator</title>
+</head>
 <body style="background:#111;color:#fff;font-family:sans-serif;padding:20px">
 <h2>Private Image Generator</h2>
-<textarea id="p" style="width:100%;height:120px"></textarea>
+
+<textarea id="p" placeholder="Enter prompt..."
+style="width:100%;height:120px"></textarea><br><br>
+
 <button onclick="go()">Generate</button>
-<div id="r"></div>
+<div id="r" style="margin-top:20px"></div>
+
 <script>
 async function go(){
+  r.innerHTML = "Generating...";
   const res = await fetch('/generate',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({inputs:p.value})
   });
-  if(!res.ok){ r.innerText = await res.text(); return }
+
+  if(!res.ok){
+    r.innerText = await res.text();
+    return;
+  }
+
   const img = document.createElement('img');
   img.src = URL.createObjectURL(await res.blob());
-  img.style.maxWidth='100%';
-  r.innerHTML='';
+  img.style.maxWidth = '100%';
+  r.innerHTML = '';
   r.appendChild(img);
 }
 </script>
