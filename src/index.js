@@ -46,7 +46,14 @@ body {
   font-family:system-ui;
   padding:16px;
 }
-textarea, select, button {
+textarea {
+  width:100%;
+  height:220px;
+  padding:12px;
+  font-size:16px;
+  margin-top:10px;
+}
+select, button {
   width:100%;
   padding:10px;
   margin-top:10px;
@@ -58,7 +65,7 @@ img {
 }
 label {
   display:block;
-  margin-top:8px;
+  margin-top:10px;
 }
 </style>
 </head>
@@ -66,7 +73,7 @@ label {
 
 <h2>Private Image Generator</h2>
 
-<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<textarea id="prompt" placeholder="Describe the image in detail..."></textarea>
 
 <select id="style">
   <option value="semi">Semi-Realistic</option>
@@ -145,18 +152,16 @@ async function generate() {
         {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${env.HF_TOKEN}`,
+            "Authorization": \`Bearer \${env.HF_TOKEN}\`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            inputs: prompt
-          })
+          body: JSON.stringify({ inputs: prompt })
         }
       );
 
       if (!hf.ok) {
         return new Response(
-          "HF ERROR:\n" + await hf.text(),
+          "HF ERROR:\\n" + await hf.text(),
           { status: 500 }
         );
       }
