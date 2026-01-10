@@ -19,33 +19,44 @@ export default {
     }
 
     /* =====================
-       HEALTH
+       HEALTH CHECK
     ====================== */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
           status: "OK",
-          hasUser: !!env.APP_USER,
-          hasPass: !!env.APP_PASS,
-          hasHF: !!env.HF_TOKEN
+          env: {
+            user: !!env.APP_USER,
+            pass: !!env.APP_PASS,
+            hf: !!env.HF_TOKEN
+          }
         }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
     /* =====================
-       GENERATE IMAGE
+       IMAGE GENERATION
     ====================== */
     if (url.pathname === "/generate" && request.method === "POST") {
       try {
         const body = await request.json();
 
-        if (!body.inputs || typeof body.inputs !== "string") {
+        if (!body.prompt) {
           return new Response(
-            JSON.stringify({ error: "Missing or invalid inputs field" }),
+            JSON.stringify({ error: "Missing prompt" }),
             { status: 400 }
           );
         }
+
+        const styleMap = {
+          realism: "photorealistic, ultra-detailed",
+          anime: "anime style, clean line art, vibrant colors",
+          cinematic: "cinematic lighting, dramatic shadows"
+        };
+
+        const styleText = styleMap[body.style] || "";
+        const finalPrompt = `${styleText}, ${body.prompt}`;
 
         const hf = await fetch(
           "https://router.huggingface.co/hf-inference/models/stabilityai/sdxl-turbo",
@@ -56,7 +67,7 @@ export default {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              inputs: body.inputs
+              inputs: finalPrompt
             })
           }
         );
@@ -64,7 +75,11 @@ export default {
         if (!hf.ok) {
           const text = await hf.text();
           return new Response(
-            JSON.stringify({ hf_status: hf.status, hf_error: text }),
+            JSON.stringify({
+              error: "HF generation failed",
+              status: hf.status,
+              details: text
+            }),
             { status: 500 }
           );
         }
@@ -82,7 +97,7 @@ export default {
     }
 
     /* =====================
-       PRIVATE UI
+       UI
     ====================== */
     return new Response(`
 <!doctype html>
@@ -92,24 +107,50 @@ export default {
 <title>Private Image Generator</title>
 <style>
 body{background:#0f0f0f;color:#fff;font-family:sans-serif;padding:20px}
-textarea{width:100%;height:160px;font-size:16px;padding:10px}
-button{width:100%;padding:14px;margin-top:10px;font-size:16px;background:#4caf50;border:0;color:#fff}
+textarea{width:100%;height:180px;font-size:16px;padding:12px;border-radius:8px}
+select,button{width:100%;padding:14px;margin-top:10px;font-size:16px;border-radius:8px}
+button{background:#4caf50;border:0;color:#fff}
 img{margin-top:20px;max-width:100%;border-radius:10px}
 </style>
 </head>
 <body>
+
 <h2>Private Image Generator</h2>
+
 <textarea id="prompt" placeholder="Describe the image…"></textarea>
+
+<select id="style">
+  <option value="realism">Realistic</option>
+  <option value="anime">Anime / Animated</option>
+  <option value="cinematic">Cinematic</option>
+</select>
+
 <button onclick="go()">Generate</button>
+
 <img id="img">
+
 <script>
 async function go(){
-  const p=document.getElementById("prompt").value;
-  const r=await fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs:p})});
-  if(!r.ok){alert("Generation failed");return;}
-  document.getElementById("img").src=URL.createObjectURL(await r.blob());
+  const prompt=document.getElementById("prompt").value;
+  const style=document.getElementById("style").value;
+
+  const r=await fetch("/generate",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ prompt, style })
+  });
+
+  if(!r.ok){
+    const t=await r.text();
+    alert("Generation failed\\n"+t);
+    return;
+  }
+
+  document.getElementById("img").src=
+    URL.createObjectURL(await r.blob());
 }
 </script>
+
 </body>
 </html>
 `, {
