@@ -2,16 +2,12 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ------------------------------
-       BASIC AUTH (GLOBAL)
-    ------------------------------ */
+    /* ---------------- BASIC AUTH ---------------- */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: {
-          "WWW-Authenticate": 'Basic realm="Private Image Generator"'
-        }
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image Generator"' }
       });
     }
 
@@ -22,14 +18,11 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ------------------------------
-       HEALTH CHECK
-    ------------------------------ */
+    /* ---------------- HEALTH ---------------- */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
           status: "OK",
-          message: "Worker is reachable and running",
           hasUser: !!env.APP_USER,
           hasPass: !!env.APP_PASS,
           hasHF: !!env.HF_TOKEN
@@ -38,116 +31,117 @@ export default {
       );
     }
 
-    /* ------------------------------
-       UI (ROOT PAGE)
-    ------------------------------ */
+    /* ---------------- UI ---------------- */
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(
-        `<!DOCTYPE html>
+`<!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Private Image Generator</title>
-  <style>
-    body { font-family: system-ui; background:#111; color:#fff; padding:16px }
-    textarea, select, button { width:100%; margin-top:10px; padding:10px }
-    img { max-width:100%; margin-top:16px; border-radius:8px }
-    label { display:block; margin-top:12px }
-  </style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Image Generator</title>
+<style>
+body {
+  background:#111;
+  color:#fff;
+  font-family:system-ui;
+  padding:16px;
+}
+textarea, select, button {
+  width:100%;
+  padding:10px;
+  margin-top:10px;
+}
+img {
+  max-width:100%;
+  margin-top:16px;
+  border-radius:8px;
+}
+label {
+  display:block;
+  margin-top:8px;
+}
+</style>
 </head>
 <body>
-  <h2>Private Image Generator</h2>
 
-  <textarea id="prompt" placeholder="Describe the image..."></textarea>
+<h2>Private Image Generator</h2>
 
-  <label>
-    Style Preset
-    <select id="style">
-      <option value="semi-realistic">Semi-Realistic</option>
-      <option value="photorealistic">Photorealistic</option>
-      <option value="illustration">Illustration</option>
-    </select>
-  </label>
+<textarea id="prompt" placeholder="Describe the image..."></textarea>
 
-  <label>
-    <input type="checkbox" id="charlock" checked />
-    Character Lock (face + body)
-  </label>
+<select id="style">
+  <option value="semi">Semi-Realistic</option>
+  <option value="photo">Photorealistic</option>
+  <option value="anime">Anime / Animated</option>
+  <option value="art">Illustration</option>
+</select>
 
-  <label>
-    <input type="checkbox" id="facelock" />
-    Face-Only Lock
-  </label>
+<label>
+  <input type="checkbox" id="charlock" checked>
+  Character Lock
+</label>
 
-  <label>
-    Reference Image (optional)
-    <input type="file" id="ref" accept="image/*" />
-  </label>
+<label>
+  <input type="checkbox" id="facelock">
+  Face-Only Lock
+</label>
 
-  <button onclick="generate()">Generate</button>
+<button onclick="generate()">Generate</button>
 
-  <img id="result" />
+<img id="out"/>
 
 <script>
 async function generate() {
-  const prompt = document.getElementById("prompt").value;
-  const style = document.getElementById("style").value;
-  const charlock = document.getElementById("charlock").checked;
-  const facelock = document.getElementById("facelock").checked;
-  const refFile = document.getElementById("ref").files[0];
-
-  const body = {
-    prompt,
-    style,
-    characterLock: charlock,
-    faceLock: facelock
-  };
-
   const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      prompt: document.getElementById("prompt").value,
+      style: document.getElementById("style").value,
+      characterLock: document.getElementById("charlock").checked,
+      faceLock: document.getElementById("facelock").checked
+    })
   });
 
   if (!res.ok) {
-    alert("Generation failed");
+    const t = await res.text();
+    alert("Generation failed:\\n" + t);
     return;
   }
 
-  const blob = await res.blob();
-  document.getElementById("result").src = URL.createObjectURL(blob);
+  document.getElementById("out").src =
+    URL.createObjectURL(await res.blob());
 }
 </script>
+
 </body>
 </html>`,
         { headers: { "Content-Type": "text/html" } }
       );
     }
 
-    /* ------------------------------
-       IMAGE GENERATION
-    ------------------------------ */
+    /* ---------------- GENERATE ---------------- */
     if (request.method === "POST" && url.pathname === "/generate") {
-      const data = await request.json();
+      const body = await request.json();
 
       const styleMap = {
-        "semi-realistic": "semi realistic, high detail, cinematic lighting",
-        "photorealistic": "photorealistic, ultra detailed, 85mm lens",
-        "illustration": "stylized illustration, clean lines, vibrant color"
+        semi: "semi realistic, high detail, cinematic lighting",
+        photo: "photorealistic, ultra detailed, 85mm lens",
+        anime: "anime style, animated, clean line art, vibrant colors, studio ghibli inspired",
+        art: "stylized illustration, clean lines, vibrant colors"
       };
 
-      let finalPrompt = `${styleMap[data.style] || ""}. ${data.prompt}`;
+      let prompt = `${styleMap[body.style] || ""}. ${body.prompt}`;
 
-      if (data.characterLock) {
-        finalPrompt += ", consistent character, same face, same proportions";
+      if (body.characterLock) {
+        prompt += ", consistent character, same person, same facial structure";
       }
 
-      if (data.faceLock) {
-        finalPrompt += ", identical facial features, same eyes nose mouth";
+      if (body.faceLock) {
+        prompt += ", identical face, same eyes, same nose, same mouth";
       }
 
-      const hfResponse = await fetch(
-        "https://router.huggingface.co/hf-inference/models/stabilityai/sdxl-turbo",
+      const hf = await fetch(
+        "https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5",
         {
           method: "POST",
           headers: {
@@ -155,23 +149,23 @@ async function generate() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            inputs: finalPrompt
+            inputs: prompt
           })
         }
       );
 
-      if (!hfResponse.ok) {
+      if (!hf.ok) {
         return new Response(
-          "HF ERROR:\n" + await hfResponse.text(),
+          "HF ERROR:\n" + await hf.text(),
           { status: 500 }
         );
       }
 
-      return new Response(await hfResponse.arrayBuffer(), {
+      return new Response(await hf.arrayBuffer(), {
         headers: { "Content-Type": "image/png" }
       });
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response("Not Found", { status: 404 });
   }
 };
