@@ -48,39 +48,40 @@ body {
 }
 textarea {
   width:100%;
-  height:280px;
+  height:260px;
   padding:14px;
   font-size:16px;
   border-radius:8px;
 }
 button {
   padding:10px;
-  margin-top:10px;
   border-radius:8px;
   border:none;
   background:#222;
   color:#fff;
 }
-button.active {
-  background:#3b82f6;
-}
-.group {
-  display:flex;
-  gap:8px;
-  margin-top:8px;
-}
-.group button {
-  flex:1;
-}
-label {
-  display:block;
-  margin-top:12px;
-}
-img {
+button.active { background:#3b82f6; }
+.group { display:flex; gap:8px; margin-top:8px; }
+.group button { flex:1; }
+label { display:block; margin-top:12px; }
+img.main {
   max-width:100%;
   margin-top:16px;
   border-radius:10px;
 }
+#history {
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  margin-top:14px;
+}
+#history img {
+  height:70px;
+  border-radius:6px;
+  cursor:pointer;
+  opacity:0.85;
+}
+#history img:hover { opacity:1; }
 input[type=file], input[type=number] {
   width:100%;
   margin-top:8px;
@@ -95,34 +96,27 @@ input[type=file], input[type=number] {
 
 <label>Style</label>
 <div class="group">
-  <button id="style-semi" class="active" onclick="setStyle('semi')">Semi-Realistic</button>
-  <button id="style-photo" onclick="setStyle('photo')">Photoreal</button>
-  <button id="style-anime" onclick="setStyle('anime')">Anime</button>
-  <button id="style-art" onclick="setStyle('art')">Illustration</button>
+  <button class="active" onclick="setStyle(this,'semi')">Semi-Realistic</button>
+  <button onclick="setStyle(this,'photo')">Photoreal</button>
+  <button onclick="setStyle(this,'anime')">Anime</button>
+  <button onclick="setStyle(this,'art')">Illustration</button>
 </div>
 
-<label>
-  <input type="checkbox" id="charlock" checked>
-  Character Lock (keeps same face & body)
-</label>
+<label><input type="checkbox" id="charlock" checked> Character Lock</label>
+<label><input type="checkbox" id="facelock"> Face-Only Lock</label>
 
-<label>
-  <input type="checkbox" id="facelock">
-  Face-Only Lock
-</label>
-
-<label>Character Anchor Strength</label>
+<label>Anchor Strength</label>
 <div class="group">
-  <button id="a-low" onclick="setAnchor('low')">Low</button>
-  <button id="a-medium" class="active" onclick="setAnchor('medium')">Medium</button>
-  <button id="a-high" onclick="setAnchor('high')">High</button>
+  <button onclick="setAnchor(this,'low')">Low</button>
+  <button class="active" onclick="setAnchor(this,'medium')">Medium</button>
+  <button onclick="setAnchor(this,'high')">High</button>
 </div>
 
 <label>Reference Influence</label>
 <div class="group">
-  <button id="r-low" onclick="setInfluence('low')">Low</button>
-  <button id="r-medium" class="active" onclick="setInfluence('medium')">Medium</button>
-  <button id="r-high" onclick="setInfluence('high')">High</button>
+  <button onclick="setInfluence(this,'low')">Low</button>
+  <button class="active" onclick="setInfluence(this,'medium')">Medium</button>
+  <button onclick="setInfluence(this,'high')">High</button>
 </div>
 
 <label>Reference Image</label>
@@ -133,67 +127,51 @@ input[type=file], input[type=number] {
 
 <button onclick="generate()">Generate Image</button>
 
-<img id="out"/>
+<img id="mainImage" class="main"/>
+<div id="history"></div>
 
 <script>
-let style = "semi";
-let anchor = "medium";
-let influence = "medium";
+let style="semi", anchor="medium", influence="medium";
+const history=[];
 
-function setStyle(s) {
-  style = s;
-  ["semi","photo","anime","art"].forEach(x=>{
-    document.getElementById("style-"+x).classList.remove("active");
-  });
-  document.getElementById("style-"+s).classList.add("active");
-}
+function setStyle(btn,v){style=v;btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
+function setAnchor(btn,v){anchor=v;btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
+function setInfluence(btn,v){influence=v;btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
 
-function setAnchor(a) {
-  anchor = a;
-  ["low","medium","high"].forEach(x=>{
-    document.getElementById("a-"+x).classList.remove("active");
-  });
-  document.getElementById("a-"+a).classList.add("active");
-}
-
-function setInfluence(i) {
-  influence = i;
-  ["low","medium","high"].forEach(x=>{
-    document.getElementById("r-"+x).classList.remove("active");
-  });
-  document.getElementById("r-"+i).classList.add("active");
-}
-
-async function generate() {
-  const file = document.getElementById("refimg").files[0];
-  const charlock = document.getElementById("charlock").checked;
-
-  if (charlock && !file) {
+async function generate(){
+  const ref=document.getElementById("refimg").files[0];
+  if(document.getElementById("charlock").checked && !ref){
     alert("Reference image required when Character Lock is ON.");
     return;
   }
 
-  const form = new FormData();
-  form.append("prompt", document.getElementById("prompt").value);
-  form.append("style", style);
-  form.append("characterLock", charlock);
-  form.append("faceLock", document.getElementById("facelock").checked);
-  form.append("anchor", anchor);
-  form.append("influence", influence);
+  const form=new FormData();
+  form.append("prompt",prompt.value);
+  form.append("style",style);
+  form.append("characterLock",charlock.checked);
+  form.append("faceLock",facelock.checked);
+  form.append("anchor",anchor);
+  form.append("influence",influence);
+  if(ref) form.append("reference",ref);
+  if(seed.value) form.append("seed",seed.value);
 
-  if (file) form.append("reference", file);
-  const seed = document.getElementById("seed").value;
-  if (seed) form.append("seed", seed);
+  const r=await fetch("/generate",{method:"POST",body:form});
+  if(!r.ok){alert(await r.text());return;}
 
-  const res = await fetch("/generate", { method:"POST", body: form });
+  const blob=await r.blob();
+  const url=URL.createObjectURL(blob);
 
-  if (!res.ok) {
-    alert("Generation failed:\\n" + await res.text());
-    return;
-  }
+  mainImage.src=url;
+  history.unshift(url);
+  if(history.length>10) history.pop();
 
-  document.getElementById("out").src =
-    URL.createObjectURL(await res.blob());
+  historyDiv.innerHTML="";
+  history.forEach(u=>{
+    const img=document.createElement("img");
+    img.src=u;
+    img.onclick=()=>mainImage.src=u;
+    historyDiv.appendChild(img);
+  });
 }
 </script>
 
@@ -205,74 +183,57 @@ async function generate() {
 
     /* ========== GENERATE ========== */
     if (request.method === "POST" && url.pathname === "/generate") {
-      const data = await request.formData();
+      const d = await request.formData();
 
-      const promptInput = data.get("prompt");
-      const style = data.get("style");
-      const characterLock = data.get("characterLock") === "true";
-      const faceLock = data.get("faceLock") === "true";
-      const anchor = data.get("anchor") || "medium";
-      const influence = data.get("influence") || "medium";
-      const reference = data.get("reference");
-      const seed = data.get("seed");
-
-      if (characterLock && !reference) {
-        return new Response("Reference image required", { status: 400 });
-      }
-
-      const styleMap = {
-        semi: "semi realistic, high detail, cinematic lighting",
-        photo: "photorealistic, ultra detailed, studio lighting",
-        anime: "anime style, animated, clean line art, expressive shading",
-        art: "stylized illustration, painterly, vibrant colors"
+      const styleMap={
+        semi:"semi realistic, cinematic lighting, high detail",
+        photo:"photorealistic, ultra detailed, studio lighting",
+        anime:"anime style, animated, clean line art",
+        art:"stylized illustration, painterly"
+      };
+      const anchorMap={
+        low:"similar facial features",
+        medium:"consistent facial structure and body proportions",
+        high:"identical face and body identity, allow pose variation"
+      };
+      const influenceMap={
+        low:"reference loosely guides identity",
+        medium:"reference strongly guides identity",
+        high:"reference strictly defines identity"
       };
 
-      const anchorMap = {
-        low: "similar facial features and body type",
-        medium: "consistent character identity, same facial structure and body proportions",
-        high: "identical face and body identity, same facial features, same body composition, allow pose variation"
-      };
-
-      const influenceMap = {
-        low: "reference image loosely guides identity",
-        medium: "reference image strongly guides identity",
-        high: "reference image strictly defines identity"
-      };
-
-      let finalPrompt = \`\${styleMap[style]}. \${promptInput}\`;
-
-      if (characterLock) {
-        finalPrompt += \`, \${anchorMap[anchor]}, \${influenceMap[influence]}\`;
+      let prompt=\`\${styleMap[d.get("style")]}, \${d.get("prompt")}\`;
+      if(d.get("characterLock")==="true"){
+        prompt+=\`, \${anchorMap[d.get("anchor")]}, \${influenceMap[d.get("influence")]}\`;
+      }
+      if(d.get("faceLock")==="true"){
+        prompt+=", identical face, same eyes, nose, mouth";
       }
 
-      if (faceLock) {
-        finalPrompt += ", identical face, same eyes, same nose, same mouth";
-      }
+      const payload={inputs:prompt};
+      if(d.get("seed")) payload.parameters={seed:Number(d.get("seed"))};
 
-      const payload = { inputs: finalPrompt };
-      if (seed) payload.parameters = { seed: Number(seed) };
-
-      const hf = await fetch(
+      const hf=await fetch(
         "https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5",
         {
-          method: "POST",
-          headers: {
-            "Authorization": \`Bearer \${env.HF_TOKEN}\`,
-            "Content-Type": "application/json"
+          method:"POST",
+          headers:{
+            "Authorization":\`Bearer \${env.HF_TOKEN}\`,
+            "Content-Type":"application/json"
           },
-          body: JSON.stringify(payload)
+          body:JSON.stringify(payload)
         }
       );
 
-      if (!hf.ok) {
-        return new Response("HF ERROR:\\n" + await hf.text(), { status: 500 });
+      if(!hf.ok){
+        return new Response("HF ERROR:\\n"+await hf.text(),{status:500});
       }
 
-      return new Response(await hf.arrayBuffer(), {
-        headers: { "Content-Type": "image/png" }
+      return new Response(await hf.arrayBuffer(),{
+        headers:{ "Content-Type":"image/png" }
       });
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response("Not Found",{status:404});
   }
 };
