@@ -2,145 +2,156 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // ---------- AUTH ----------
+    /* ---------------- BASIC AUTH ---------------- */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private Image Generator"' }
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
       });
     }
 
-    const decoded = atob(auth.split(" ")[1]).split(":");
-    if (decoded[0] !== env.APP_USER || decoded[1] !== env.APP_PASS) {
+    const decoded = atob(auth.split(" ")[1] || "");
+    const parts = decoded.split(":");
+    if (parts.length !== 2) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // ---------- HEALTH ----------
-    if (url.pathname === "/health") {
-      return new Response(JSON.stringify({
-        status: "OK",
-        hasUser: !!env.APP_USER,
-        hasPass: !!env.APP_PASS,
-        hasHF: !!env.HF_TOKEN
-      }), { headers: { "Content-Type": "application/json" } });
+    if (parts[0] !== env.APP_USER || parts[1] !== env.APP_PASS) {
+      return new Response("Unauthorized", { status: 401 });
     }
 
-    // ---------- UI ----------
-    if (request.method === "GET" && url.pathname === "/") {
-      return new Response(`<!DOCTYPE html>
+    /* ---------------- HEALTH ---------------- */
+    if (url.pathname === "/health") {
+      return new Response(
+        JSON.stringify({
+          status: "OK",
+          hasUser: !!env.APP_USER,
+          hasPass: !!env.APP_PASS,
+          hasHF: !!env.HF_TOKEN
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    /* ---------------- UI ---------------- */
+    if (url.pathname === "/" && request.method === "GET") {
+      return new Response(
+`<!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Private Image Generator</title>
 <style>
-body{background:#0b0b0b;color:#fff;font-family:system-ui;padding:16px}
-textarea{width:100%;height:260px;font-size:16px;padding:14px;border-radius:8px}
-button{padding:10px;border-radius:8px;border:none;background:#222;color:#fff}
-button.active{background:#3b82f6}
-.group{display:flex;gap:8px;margin-top:8px}
-.group button{flex:1}
-img.main{max-width:100%;margin-top:16px;border-radius:10px}
+body { font-family: system-ui; padding: 16px; background:#111; color:#eee; }
+textarea { width:100%; height:140px; font-size:16px; }
+select, button { width:100%; margin-top:8px; padding:10px; font-size:16px; }
+label { display:block; margin-top:10px; }
+img { max-width:100%; margin-top:16px; border-radius:8px; }
 </style>
 </head>
 <body>
-
 <h2>Private Image Generator</h2>
 
-<textarea id="prompt" placeholder="Describe subject, pose, outfit, lighting, mood..."></textarea>
+<label>Prompt</label>
+<textarea id="prompt"></textarea>
 
-<div class="group">
-<button class="active" onclick="setStyle('semi',this)">Semi</button>
-<button onclick="setStyle('photo',this)">Photo</button>
-<button onclick="setStyle('anime',this)">Anime</button>
-<button onclick="setStyle('art',this)">Art</button>
-</div>
+<label>Style</label>
+<select id="style">
+  <option value="semi">Semi-Realistic</option>
+  <option value="anime">Anime / Animated</option>
+  <option value="photo">Photorealistic</option>
+</select>
 
-<label><input type="checkbox" id="charlock" checked> Character Lock</label>
-<label><input type="checkbox" id="facelock"> Face Lock</label>
+<label>
+  <input type="checkbox" id="charLock" /> Character Lock (same face/body)
+</label>
 
-<input type="file" id="refimg" accept="image/*">
-<input type="number" id="seed" placeholder="Seed (optional)">
-<br><br>
 <button onclick="generate()">Generate</button>
 
-<img id="img" class="main">
+<img id="result"/>
 
 <script>
-let style="semi";
-function setStyle(v,b){
-  style=v;
-  document.querySelectorAll("button").forEach(x=>x.classList.remove("active"));
-  b.classList.add("active");
-}
+async function generate() {
+  const body = {
+    prompt: document.getElementById("prompt").value,
+    style: document.getElementById("style").value,
+    charLock: document.getElementById("charLock").checked ? "on" : "off"
+  };
 
-async function generate(){
-  const ref=document.getElementById("refimg").files[0];
-  if(document.getElementById("charlock").checked && !ref){
-    alert("Reference required when Character Lock is ON");
+  const res = await fetch("/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    alert("Generation failed");
     return;
   }
-  const f=new FormData();
-  f.append("prompt",prompt.value);
-  f.append("style",style);
-  f.append("characterLock",charlock.checked);
-  f.append("faceLock",facelock.checked);
-  if(ref) f.append("reference",ref);
-  if(seed.value) f.append("seed",seed.value);
 
-  const r=await fetch("/generate",{method:"POST",body:f});
-  if(!r.ok){alert(await r.text());return;}
-  img.src=URL.createObjectURL(await r.blob());
+  const blob = await res.blob();
+  document.getElementById("result").src = URL.createObjectURL(blob);
 }
 </script>
 </body>
-</html>`, { headers: { "Content-Type": "text/html" } });
+</html>`,
+        { headers: { "Content-Type": "text/html" } }
+      );
     }
 
-    // ---------- GENERATE ----------
-    if (request.method === "POST" && url.pathname === "/generate") {
-      const d = await request.formData();
+    /* ---------------- GENERATE ---------------- */
+    if (url.pathname === "/generate" && request.method === "POST") {
+      let data;
+      try {
+        data = await request.json();
+      } catch {
+        return new Response("Invalid JSON", { status: 400 });
+      }
 
-      const styles = {
-        semi: "semi realistic, cinematic lighting, high detail",
-        photo: "photorealistic, ultra detailed",
-        anime: "anime style, animated, clean line art",
-        art: "digital illustration, painterly"
+      if (!data.prompt) {
+        return new Response("Missing inputs field", { status: 400 });
+      }
+
+      const styleMap = {
+        semi: "semi-realistic, high quality, detailed lighting",
+        anime: "anime style, clean lineart, studio ghibli quality",
+        photo: "photorealistic, ultra-detailed, professional photography"
       };
 
-      let prompt = styles[d.get("style")] + ", " + d.get("prompt");
+      let prompt =
+        (styleMap[data.style] || styleMap.semi) +
+        ", " +
+        data.prompt;
 
-      if (d.get("characterLock") === "true") {
-        prompt += ", identical face and body, allow pose variation";
+      if (data.charLock === "on") {
+        prompt += ", same character, identical face, identical body";
       }
-      if (d.get("faceLock") === "true") {
-        prompt += ", same facial features";
-      }
 
-      const payload = { inputs: prompt };
-      if (d.get("seed")) payload.parameters = { seed: Number(d.get("seed")) };
-
-      const hf = await fetch(
-        "https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5",
+      const hfRes = await fetch(
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
           method: "POST",
           headers: {
             "Authorization": "Bearer " + env.HF_TOKEN,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ inputs: prompt })
         }
       );
 
-      if (!hf.ok) {
-        return new Response("HF ERROR:\\n" + await hf.text(), { status: 500 });
+      if (!hfRes.ok) {
+        return new Response(
+          "HF ERROR:\n" + await hfRes.text(),
+          { status: 500 }
+        );
       }
 
-      return new Response(await hf.arrayBuffer(), {
+      return new Response(await hfRes.arrayBuffer(), {
         headers: { "Content-Type": "image/png" }
       });
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response("Not found", { status: 404 });
   }
 };
