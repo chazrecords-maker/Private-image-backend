@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ---------- BASIC AUTH ---------- */
+    /* ========== BASIC AUTH ========== */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -18,7 +18,7 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ---------- HEALTH ---------- */
+    /* ========== HEALTH ========== */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
@@ -31,7 +31,7 @@ export default {
       );
     }
 
-    /* ---------- UI ---------- */
+    /* ========== UI ========== */
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(
 `<!DOCTYPE html>
@@ -41,21 +41,28 @@ export default {
 <title>Private Image Generator</title>
 <style>
 body {
-  background:#111;
+  background:#0b0b0b;
   color:#fff;
   font-family:system-ui;
   padding:16px;
 }
 textarea {
   width:100%;
-  height:240px;
-  padding:12px;
+  height:280px;
+  padding:14px;
   font-size:16px;
+  border-radius:8px;
 }
-select, button, input[type=file], input[type=number] {
-  width:100%;
+button {
   padding:10px;
   margin-top:10px;
+  border-radius:8px;
+  border:none;
+  background:#222;
+  color:#fff;
+}
+button.active {
+  background:#3b82f6;
 }
 .group {
   display:flex;
@@ -65,20 +72,18 @@ select, button, input[type=file], input[type=number] {
 .group button {
   flex:1;
 }
-.active {
-  background:#3b82f6;
-}
 label {
   display:block;
   margin-top:12px;
 }
-small {
-  color:#aaa;
-}
 img {
   max-width:100%;
   margin-top:16px;
-  border-radius:8px;
+  border-radius:10px;
+}
+input[type=file], input[type=number] {
+  width:100%;
+  margin-top:8px;
 }
 </style>
 </head>
@@ -86,18 +91,19 @@ img {
 
 <h2>Private Image Generator</h2>
 
-<textarea id="prompt" placeholder="Describe pose, outfit, scene, lighting, mood..."></textarea>
+<textarea id="prompt" placeholder="Describe pose, outfit, lighting, mood, camera angle..."></textarea>
 
-<select id="style">
-  <option value="semi">Semi-Realistic</option>
-  <option value="photo">Photorealistic</option>
-  <option value="anime">Anime / Animated</option>
-  <option value="art">Illustration</option>
-</select>
+<label>Style</label>
+<div class="group">
+  <button id="style-semi" class="active" onclick="setStyle('semi')">Semi-Realistic</button>
+  <button id="style-photo" onclick="setStyle('photo')">Photoreal</button>
+  <button id="style-anime" onclick="setStyle('anime')">Anime</button>
+  <button id="style-art" onclick="setStyle('art')">Illustration</button>
+</div>
 
 <label>
   <input type="checkbox" id="charlock" checked>
-  Character Lock (requires reference image)
+  Character Lock (keeps same face & body)
 </label>
 
 <label>
@@ -107,55 +113,60 @@ img {
 
 <label>Character Anchor Strength</label>
 <div class="group">
-  <button onclick="setAnchor('low')" id="a-low">Low</button>
-  <button onclick="setAnchor('medium')" id="a-medium" class="active">Medium</button>
-  <button onclick="setAnchor('high')" id="a-high">High</button>
+  <button id="a-low" onclick="setAnchor('low')">Low</button>
+  <button id="a-medium" class="active" onclick="setAnchor('medium')">Medium</button>
+  <button id="a-high" onclick="setAnchor('high')">High</button>
 </div>
 
 <label>Reference Influence</label>
 <div class="group">
-  <button onclick="setInfluence('low')" id="r-low">Low</button>
-  <button onclick="setInfluence('medium')" id="r-medium" class="active">Medium</button>
-  <button onclick="setInfluence('high')" id="r-high">High</button>
+  <button id="r-low" onclick="setInfluence('low')">Low</button>
+  <button id="r-medium" class="active" onclick="setInfluence('medium')">Medium</button>
+  <button id="r-high" onclick="setInfluence('high')">High</button>
 </div>
 
-<label>
-  Reference Image
-  <input type="file" id="refimg" accept="image/*">
-</label>
+<label>Reference Image</label>
+<input type="file" id="refimg" accept="image/*">
 
-<label>
-  Seed (optional)
-  <input type="number" id="seed" placeholder="Leave empty for random">
-</label>
+<label>Seed (optional)</label>
+<input type="number" id="seed" placeholder="Same seed = similar results">
 
-<button onclick="generate()">Generate</button>
+<button onclick="generate()">Generate Image</button>
 
 <img id="out"/>
 
 <script>
+let style = "semi";
 let anchor = "medium";
 let influence = "medium";
 
-function setAnchor(level) {
-  anchor = level;
-  ["low","medium","high"].forEach(l=>{
-    document.getElementById("a-"+l).classList.remove("active");
+function setStyle(s) {
+  style = s;
+  ["semi","photo","anime","art"].forEach(x=>{
+    document.getElementById("style-"+x).classList.remove("active");
   });
-  document.getElementById("a-"+level).classList.add("active");
+  document.getElementById("style-"+s).classList.add("active");
 }
 
-function setInfluence(level) {
-  influence = level;
-  ["low","medium","high"].forEach(l=>{
-    document.getElementById("r-"+l).classList.remove("active");
+function setAnchor(a) {
+  anchor = a;
+  ["low","medium","high"].forEach(x=>{
+    document.getElementById("a-"+x).classList.remove("active");
   });
-  document.getElementById("r-"+level).classList.add("active");
+  document.getElementById("a-"+a).classList.add("active");
+}
+
+function setInfluence(i) {
+  influence = i;
+  ["low","medium","high"].forEach(x=>{
+    document.getElementById("r-"+x).classList.remove("active");
+  });
+  document.getElementById("r-"+i).classList.add("active");
 }
 
 async function generate() {
-  const charlock = document.getElementById("charlock").checked;
   const file = document.getElementById("refimg").files[0];
+  const charlock = document.getElementById("charlock").checked;
 
   if (charlock && !file) {
     alert("Reference image required when Character Lock is ON.");
@@ -164,16 +175,15 @@ async function generate() {
 
   const form = new FormData();
   form.append("prompt", document.getElementById("prompt").value);
-  form.append("style", document.getElementById("style").value);
+  form.append("style", style);
   form.append("characterLock", charlock);
   form.append("faceLock", document.getElementById("facelock").checked);
   form.append("anchor", anchor);
   form.append("influence", influence);
 
+  if (file) form.append("reference", file);
   const seed = document.getElementById("seed").value;
   if (seed) form.append("seed", seed);
-
-  if (file) form.append("reference", file);
 
   const res = await fetch("/generate", { method:"POST", body: form });
 
@@ -193,7 +203,7 @@ async function generate() {
       );
     }
 
-    /* ---------- GENERATE ---------- */
+    /* ========== GENERATE ========== */
     if (request.method === "POST" && url.pathname === "/generate") {
       const data = await request.formData();
 
@@ -212,9 +222,9 @@ async function generate() {
 
       const styleMap = {
         semi: "semi realistic, high detail, cinematic lighting",
-        photo: "photorealistic, ultra detailed, 85mm lens",
-        anime: "anime style, animated, clean line art, vibrant colors",
-        art: "stylized illustration, clean lines, vibrant colors"
+        photo: "photorealistic, ultra detailed, studio lighting",
+        anime: "anime style, animated, clean line art, expressive shading",
+        art: "stylized illustration, painterly, vibrant colors"
       };
 
       const anchorMap = {
@@ -224,22 +234,22 @@ async function generate() {
       };
 
       const influenceMap = {
-        low: "reference image is a loose guide",
+        low: "reference image loosely guides identity",
         medium: "reference image strongly guides identity",
         high: "reference image strictly defines identity"
       };
 
-      let prompt = `${styleMap[style] || ""}. ${promptInput}`;
+      let finalPrompt = \`\${styleMap[style]}. \${promptInput}\`;
 
       if (characterLock) {
-        prompt += `, ${anchorMap[anchor]}, ${influenceMap[influence]}`;
+        finalPrompt += \`, \${anchorMap[anchor]}, \${influenceMap[influence]}\`;
       }
 
       if (faceLock) {
-        prompt += ", identical face, same eyes, same nose, same mouth";
+        finalPrompt += ", identical face, same eyes, same nose, same mouth";
       }
 
-      const payload = { inputs: prompt };
+      const payload = { inputs: finalPrompt };
       if (seed) payload.parameters = { seed: Number(seed) };
 
       const hf = await fetch(
@@ -255,10 +265,7 @@ async function generate() {
       );
 
       if (!hf.ok) {
-        return new Response(
-          "HF ERROR:\\n" + await hf.text(),
-          { status: 500 }
-        );
+        return new Response("HF ERROR:\\n" + await hf.text(), { status: 500 });
       }
 
       return new Response(await hf.arrayBuffer(), {
