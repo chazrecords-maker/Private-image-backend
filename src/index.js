@@ -2,29 +2,25 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* =========================
-       BASIC AUTH (ALL ROUTES)
-    ========================== */
+    /* =====================
+       BASIC AUTH
+    ====================== */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: {
-          "WWW-Authenticate": 'Basic realm="Private Image App"'
-        }
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
       });
     }
 
-    const decoded = atob(auth.split(" ")[1]);
-    const [user, pass] = decoded.split(":");
-
+    const [user, pass] = atob(auth.split(" ")[1]).split(":");
     if (user !== env.APP_USER || pass !== env.APP_PASS) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* =========================
-       HEALTH CHECK
-    ========================== */
+    /* =====================
+       HEALTH
+    ====================== */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
@@ -37,22 +33,22 @@ export default {
       );
     }
 
-    /* =========================
-       IMAGE GENERATION
-    ========================== */
+    /* =====================
+       GENERATE IMAGE
+    ====================== */
     if (url.pathname === "/generate" && request.method === "POST") {
       try {
         const body = await request.json();
 
-        if (!body.inputs) {
+        if (!body.inputs || typeof body.inputs !== "string") {
           return new Response(
-            JSON.stringify({ error: "Missing inputs field" }),
+            JSON.stringify({ error: "Missing or invalid inputs field" }),
             { status: 400 }
           );
         }
 
-        const hfResponse = await fetch(
-          "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
+        const hf = await fetch(
+          "https://router.huggingface.co/hf-inference/models/stabilityai/sdxl-turbo",
           {
             method: "POST",
             headers: {
@@ -65,96 +61,58 @@ export default {
           }
         );
 
-        if (!hfResponse.ok) {
-          const err = await hfResponse.text();
+        if (!hf.ok) {
+          const text = await hf.text();
           return new Response(
-            JSON.stringify({ error: err }),
+            JSON.stringify({ hf_status: hf.status, hf_error: text }),
             { status: 500 }
           );
         }
 
-        return new Response(await hfResponse.arrayBuffer(), {
+        return new Response(await hf.arrayBuffer(), {
           headers: { "Content-Type": "image/png" }
         });
 
-      } catch (e) {
+      } catch (err) {
         return new Response(
-          JSON.stringify({ error: e.message }),
+          JSON.stringify({ error: err.message }),
           { status: 500 }
         );
       }
     }
 
-    /* =========================
-       PRIVATE WEB UI
-    ========================== */
+    /* =====================
+       PRIVATE UI
+    ====================== */
     return new Response(`
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Private Image Generator</title>
-  <style>
-    body {
-      background: #0f0f0f;
-      color: #fff;
-      font-family: system-ui;
-      padding: 20px;
-    }
-    textarea {
-      width: 100%;
-      height: 140px;
-      font-size: 16px;
-      padding: 10px;
-      margin-bottom: 10px;
-    }
-    button {
-      width: 100%;
-      padding: 12px;
-      font-size: 16px;
-      background: #4caf50;
-      border: none;
-      color: #fff;
-      cursor: pointer;
-    }
-    img {
-      margin-top: 20px;
-      max-width: 100%;
-      border-radius: 8px;
-    }
-  </style>
+<meta charset="utf-8">
+<title>Private Image Generator</title>
+<style>
+body{background:#0f0f0f;color:#fff;font-family:sans-serif;padding:20px}
+textarea{width:100%;height:160px;font-size:16px;padding:10px}
+button{width:100%;padding:14px;margin-top:10px;font-size:16px;background:#4caf50;border:0;color:#fff}
+img{margin-top:20px;max-width:100%;border-radius:10px}
+</style>
 </head>
 <body>
-  <h2>Private Image Generator</h2>
-
-  <textarea id="prompt" placeholder="Describe the image..."></textarea>
-  <button onclick="generate()">Generate</button>
-
-  <img id="result" />
-
-  <script>
-    async function generate() {
-      const prompt = document.getElementById("prompt").value;
-      if (!prompt) return alert("Enter a prompt");
-
-      const res = await fetch("/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: prompt })
-      });
-
-      if (!res.ok) {
-        alert("Generation failed");
-        return;
-      }
-
-      const blob = await res.blob();
-      document.getElementById("result").src = URL.createObjectURL(blob);
-    }
-  </script>
+<h2>Private Image Generator</h2>
+<textarea id="prompt" placeholder="Describe the image…"></textarea>
+<button onclick="go()">Generate</button>
+<img id="img">
+<script>
+async function go(){
+  const p=document.getElementById("prompt").value;
+  const r=await fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs:p})});
+  if(!r.ok){alert("Generation failed");return;}
+  document.getElementById("img").src=URL.createObjectURL(await r.blob());
+}
+</script>
 </body>
 </html>
-    `, {
+`, {
       headers: { "Content-Type": "text/html" }
     });
   }
