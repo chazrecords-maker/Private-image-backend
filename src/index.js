@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ---------------- BASIC AUTH ---------------- */
+    /* ---------- BASIC AUTH ---------- */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -18,7 +18,7 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* ---------------- HEALTH ---------------- */
+    /* ---------- HEALTH ---------- */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
@@ -31,7 +31,7 @@ export default {
       );
     }
 
-    /* ---------------- UI ---------------- */
+    /* ---------- UI ---------- */
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(
 `<!DOCTYPE html>
@@ -40,33 +40,14 @@ export default {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Image Generator</title>
 <style>
-body {
-  background:#111;
-  color:#fff;
-  font-family:system-ui;
-  padding:16px;
+body { background:#111; color:#fff; font-family:system-ui; padding:16px; }
+textarea { width:100%; height:220px; padding:12px; font-size:16px; }
+select, button, input[type=file] {
+  width:100%; padding:10px; margin-top:10px;
 }
-textarea {
-  width:100%;
-  height:220px;
-  padding:12px;
-  font-size:16px;
-  margin-top:10px;
-}
-select, button {
-  width:100%;
-  padding:10px;
-  margin-top:10px;
-}
-img {
-  max-width:100%;
-  margin-top:16px;
-  border-radius:8px;
-}
-label {
-  display:block;
-  margin-top:10px;
-}
+img { max-width:100%; margin-top:16px; border-radius:8px; }
+label { display:block; margin-top:12px; }
+small { color:#aaa; }
 </style>
 </head>
 <body>
@@ -84,12 +65,18 @@ label {
 
 <label>
   <input type="checkbox" id="charlock" checked>
-  Character Lock
+  Character Lock (requires reference image)
 </label>
 
 <label>
   <input type="checkbox" id="facelock">
   Face-Only Lock
+</label>
+
+<label>
+  Reference Image
+  <input type="file" id="refimg" accept="image/*">
+  <small>Required when Character Lock is ON</small>
 </label>
 
 <button onclick="generate()">Generate</button>
@@ -98,20 +85,25 @@ label {
 
 <script>
 async function generate() {
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      prompt: document.getElementById("prompt").value,
-      style: document.getElementById("style").value,
-      characterLock: document.getElementById("charlock").checked,
-      faceLock: document.getElementById("facelock").checked
-    })
-  });
+  const charlock = document.getElementById("charlock").checked;
+  const file = document.getElementById("refimg").files[0];
+
+  if (charlock && !file) {
+    alert("Reference image required when Character Lock is ON.");
+    return;
+  }
+
+  const form = new FormData();
+  form.append("prompt", document.getElementById("prompt").value);
+  form.append("style", document.getElementById("style").value);
+  form.append("characterLock", charlock);
+  form.append("faceLock", document.getElementById("facelock").checked);
+  if (file) form.append("reference", file);
+
+  const res = await fetch("/generate", { method:"POST", body: form });
 
   if (!res.ok) {
-    const t = await res.text();
-    alert("Generation failed:\\n" + t);
+    alert("Generation failed:\\n" + await res.text());
     return;
   }
 
@@ -126,24 +118,33 @@ async function generate() {
       );
     }
 
-    /* ---------------- GENERATE ---------------- */
+    /* ---------- GENERATE ---------- */
     if (request.method === "POST" && url.pathname === "/generate") {
-      const body = await request.json();
+      const data = await request.formData();
+
+      const promptInput = data.get("prompt");
+      const style = data.get("style");
+      const characterLock = data.get("characterLock") === "true";
+      const faceLock = data.get("faceLock") === "true";
+      const reference = data.get("reference");
+
+      if (characterLock && !reference) {
+        return new Response("Reference image required", { status: 400 });
+      }
 
       const styleMap = {
         semi: "semi realistic, high detail, cinematic lighting",
         photo: "photorealistic, ultra detailed, 85mm lens",
-        anime: "anime style, animated, clean line art, vibrant colors, studio ghibli inspired",
+        anime: "anime style, animated, clean line art, vibrant colors",
         art: "stylized illustration, clean lines, vibrant colors"
       };
 
-      let prompt = `${styleMap[body.style] || ""}. ${body.prompt}`;
+      let prompt = `${styleMap[style] || ""}. ${promptInput}`;
 
-      if (body.characterLock) {
+      if (characterLock) {
         prompt += ", consistent character, same person, same facial structure";
       }
-
-      if (body.faceLock) {
+      if (faceLock) {
         prompt += ", identical face, same eyes, same nose, same mouth";
       }
 
