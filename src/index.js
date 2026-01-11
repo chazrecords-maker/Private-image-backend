@@ -36,6 +36,19 @@ export default {
         return new Response("Missing prompt", { status: 400 });
       }
 
+      const hfPayload = {
+        inputs: body.inputs,
+        parameters: {
+          width: 1024,
+          height: 1024,
+        },
+      };
+
+      // Seed pinning (identity lock)
+      if (body.seed !== undefined && body.seed !== "") {
+        hfPayload.parameters.seed = Number(body.seed);
+      }
+
       const hf = await fetch(
         "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
         {
@@ -44,13 +57,7 @@ export default {
             Authorization: `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            inputs: body.inputs,
-            parameters: {
-              width: 1024,
-              height: 1024,
-            },
-          }),
+          body: JSON.stringify(hfPayload),
         }
       );
 
@@ -91,10 +98,9 @@ button {
 button.active {
   background:#4caf50;
 }
-textarea {
+textarea, input {
   width:100%;
-  height:160px;
-  margin-top:12px;
+  margin-top:10px;
   padding:10px;
   font-size:16px;
 }
@@ -103,6 +109,9 @@ textarea {
   margin-top:20px;
   border-radius:8px;
 }
+.toggle {
+  margin-top:10px;
+}
 </style>
 </head>
 
@@ -110,15 +119,23 @@ textarea {
 <h2>Private Image Generator</h2>
 
 <div>
-<b>Style Preset:</b><br>
+<b>Style:</b><br>
 <button onclick="setStyle('semi')">Semi-Realistic</button>
 <button onclick="setStyle('cinematic')">Cinematic</button>
 <button onclick="setStyle('photo')">Photorealistic</button>
 <button onclick="setStyle('anime')">Anime</button>
-<button onclick="setStyle('illustration')">Illustration</button>
 </div>
 
 <textarea id="prompt" placeholder="Describe the image..."></textarea>
+
+<div class="toggle">
+<label>
+<input type="checkbox" id="lockFace">
+ Lock face & body (pose may change)
+</label>
+</div>
+
+<input id="seed" placeholder="Seed (optional — e.g. 777)" />
 
 <button style="margin-top:14px;width:100%;font-size:18px" onclick="go()">Generate</button>
 
@@ -128,11 +145,10 @@ textarea {
 let styleText = "";
 
 const styles = {
-  semi: "semi-realistic, high detail, natural lighting, realistic proportions",
-  cinematic: "cinematic lighting, dramatic shadows, ultra detailed, film still",
-  photo: "photorealistic, sharp focus, DSLR, ultra high resolution",
-  anime: "anime style, clean lineart, vibrant colors, detailed illustration",
-  illustration: "digital illustration, painterly, soft shading, detailed art"
+  semi: "semi-realistic, high detail, natural lighting, consistent facial features, proportional anatomy",
+  cinematic: "cinematic lighting, dramatic shadows, film still, consistent character identity",
+  photo: "photorealistic, sharp focus, DSLR, consistent face and body",
+  anime: "anime style, clean lineart, consistent character design"
 };
 
 function setStyle(key) {
@@ -142,17 +158,26 @@ function setStyle(key) {
 }
 
 async function go() {
-  const p = document.getElementById("prompt").value.trim();
+  const p = prompt.value.trim();
   if (!p) return alert("Enter a prompt");
 
-  const finalPrompt = styleText ? styleText + ", " + p : p;
+  let finalPrompt = styleText ? styleText + ", " + p : p;
+
+  if (lockFace.checked) {
+    finalPrompt =
+      "same character, same face, same body structure, identity consistency, " +
+      finalPrompt;
+  }
 
   result.innerHTML = "Generating...";
 
   const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs: finalPrompt })
+    body: JSON.stringify({
+      inputs: finalPrompt,
+      seed: seed.value
+    })
   });
 
   if (!res.ok) {
