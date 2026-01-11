@@ -19,7 +19,7 @@ export default {
     }
 
     /* =======================
-       HEALTH CHECK
+       HEALTH
     ======================= */
     if (url.pathname === "/health") {
       return new Response(
@@ -34,7 +34,7 @@ export default {
     }
 
     /* =======================
-       GENERATE IMAGE
+       GENERATE
     ======================= */
     if (url.pathname === "/generate" && request.method === "POST") {
       const form = await request.formData();
@@ -45,22 +45,27 @@ export default {
       }
 
       const style = form.get("style") || "semi";
-      const lockChar = form.get("lock") === "on";
+      const charLock = form.get("charLock") === "on";
+      const faceLock = form.get("faceLock") === "on";
       const refImage = form.get("reference");
 
       const styleMap = {
-        semi: "semi-realistic, highly detailed, cinematic lighting",
-        anime: "anime style, clean lines, vibrant colors, detailed illustration"
+        semi: "semi-realistic, ultra-detailed, cinematic lighting, high quality",
+        anime: "anime style, clean lineart, vibrant colors, detailed illustration"
       };
 
       let finalPrompt = styleMap[style] + ", " + promptText;
-      if (lockChar) {
-        finalPrompt += ", same face, same body proportions, consistent character";
+
+      if (charLock) {
+        finalPrompt +=
+          ", same face, same facial features, same body proportions, consistent character identity";
+      } else if (faceLock) {
+        finalPrompt +=
+          ", same face, same facial structure, same eyes, same nose, same mouth, facial consistency only, body and pose may vary";
       }
 
       let hfResponse;
 
-      // ----- If reference image provided -----
       if (refImage && refImage instanceof File && refImage.size > 0) {
         const hfForm = new FormData();
         hfForm.append("inputs", finalPrompt);
@@ -76,9 +81,7 @@ export default {
             body: hfForm
           }
         );
-      } 
-      // ----- Text-only generation -----
-      else {
+      } else {
         hfResponse = await fetch(
           "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
           {
@@ -111,7 +114,7 @@ export default {
     }
 
     /* =======================
-       PRIVATE WEB UI
+       UI
     ======================= */
     return new Response(`
 <!doctype html>
@@ -125,7 +128,7 @@ export default {
 
 <textarea id="prompt"
 placeholder="Describe your image..."
-style="width:100%;height:160px;font-size:16px"></textarea>
+style="width:100%;height:180px;font-size:16px"></textarea>
 
 <br><br>
 
@@ -137,8 +140,15 @@ style="width:100%;height:160px;font-size:16px"></textarea>
 
 <br><br>
 
+<b>Consistency</b><br>
 <label>
-<input type="checkbox" id="lock"> Character Lock
+<input type="checkbox" id="charLock" onchange="if(this.checked) faceLock.checked=false">
+ Character Lock
+</label>
+<br>
+<label>
+<input type="checkbox" id="faceLock" onchange="if(this.checked) charLock.checked=false">
+ Face-Only Lock
 </label>
 
 <br><br>
@@ -162,7 +172,8 @@ async function go() {
   const fd = new FormData();
   fd.append("prompt", prompt.value);
   fd.append("style", document.querySelector('input[name="style"]:checked').value);
-  fd.append("lock", lock.checked ? "on" : "off");
+  fd.append("charLock", charLock.checked ? "on" : "off");
+  fd.append("faceLock", faceLock.checked ? "on" : "off");
 
   if (ref.files.length > 0) {
     fd.append("reference", ref.files[0]);
