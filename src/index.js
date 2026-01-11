@@ -129,67 +129,128 @@ export default {
     }
 
     /* =======================
-       UI
+       MOBILE-POLISHED UI
     ======================= */
     return new Response(`
 <!doctype html>
 <html>
 <head>
 <title>Private Image Generator</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+body {
+  margin: 0;
+  background: #0b0b0b;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.container {
+  max-width: 640px;
+  margin: auto;
+  padding: 16px;
+}
+.card {
+  background: #151515;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+h2 {
+  text-align: center;
+  margin-bottom: 12px;
+}
+textarea, input[type="number"] {
+  width: 100%;
+  font-size: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  background: #0f0f0f;
+  color: #fff;
+}
+label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 16px;
+}
+input[type="radio"], input[type="checkbox"] {
+  transform: scale(1.2);
+}
+button {
+  width: 100%;
+  padding: 16px;
+  font-size: 18px;
+  border-radius: 14px;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+}
+button:active {
+  opacity: 0.85;
+}
+#result img {
+  width: 100%;
+  border-radius: 14px;
+  margin-top: 12px;
+}
+.sticky {
+  position: sticky;
+  bottom: 12px;
+}
+</style>
 </head>
-<body style="background:#0f0f0f;color:#fff;font-family:sans-serif;padding:20px">
+
+<body>
+<div class="container">
+
 <h2>Private Image Generator</h2>
 
-<textarea id="prompt"
-placeholder="Describe your image..."
-style="width:100%;height:180px;font-size:16px"></textarea>
+<div class="card">
+<textarea id="prompt" placeholder="Describe your image..."></textarea>
+</div>
 
-<br><br>
-
-<b>Style</b><br>
+<div class="card">
+<b>Style</b>
 <label><input type="radio" name="style" value="semi" checked> Semi-Realistic</label>
-<label style="margin-left:12px">
-<input type="radio" name="style" value="anime"> Anime
-</label>
+<label><input type="radio" name="style" value="anime"> Anime</label>
+</div>
 
-<br><br>
-
-<b>Consistency</b><br>
+<div class="card">
+<b>Consistency</b>
 <label>
 <input type="checkbox" id="charLock" onchange="if(this.checked) faceLock.checked=false">
  Character Lock
 </label>
-<br>
 <label>
 <input type="checkbox" id="faceLock" onchange="if(this.checked) charLock.checked=false">
  Face-Only Lock
 </label>
+</div>
 
-<br><br>
+<div class="card">
+<b>Seed (optional)</b>
+<input id="seed" type="number" placeholder="Leave empty for random">
+</div>
 
-<b>Seed (optional)</b><br>
-<input id="seed" type="number"
-placeholder="Leave empty for random"
-style="width:100%;padding:6px">
-
-<br><br>
-
-<b>Reference Image (optional)</b><br>
+<div class="card">
+<b>Reference Image (optional)</b>
 <input type="file" id="ref" accept="image/*">
+</div>
 
-<br><br>
+<div class="sticky">
+<button onclick="go()">Generate</button>
+</div>
 
-<button onclick="go()" style="padding:10px 18px;font-size:16px">
-Generate
-</button>
+<div id="result"></div>
 
-<div id="result" style="margin-top:20px"></div>
+</div>
 
 <script>
 async function go() {
   const result = document.getElementById("result");
-  result.innerHTML = "Generating...";
+  result.innerHTML = "<div class='card'>Generating…</div>";
 
   const fd = new FormData();
   fd.append("prompt", prompt.value);
@@ -197,28 +258,18 @@ async function go() {
   fd.append("charLock", charLock.checked ? "on" : "off");
   fd.append("faceLock", faceLock.checked ? "on" : "off");
 
-  if (seed.value !== "") {
-    fd.append("seed", seed.value);
-  }
+  if (seed.value !== "") fd.append("seed", seed.value);
+  if (ref.files.length > 0) fd.append("reference", ref.files[0]);
 
-  if (ref.files.length > 0) {
-    fd.append("reference", ref.files[0]);
-  }
-
-  const res = await fetch("/generate", {
-    method: "POST",
-    body: fd
-  });
+  const res = await fetch("/generate", { method: "POST", body: fd });
 
   if (!res.ok) {
-    result.innerText = await res.text();
+    result.innerHTML = "<div class='card'>" + await res.text() + "</div>";
     return;
   }
 
   const img = document.createElement("img");
   img.src = URL.createObjectURL(await res.blob());
-  img.style.maxWidth = "100%";
-
   result.innerHTML = "";
   result.appendChild(img);
 }
