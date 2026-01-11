@@ -21,13 +21,15 @@ export default {
       return new Response(
         JSON.stringify({
           status: "OK",
-          hfToken: !!env.HF_TOKEN,
+          hasUser: !!env.APP_USER,
+          hasPass: !!env.APP_PASS,
+          hasHF: !!env.HF_TOKEN,
         }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // ---------- GENERATE ----------
+    // ---------- GENERATE (DO NOT TOUCH PAYLOAD) ----------
     if (url.pathname === "/generate" && request.method === "POST") {
       const body = await request.json().catch(() => null);
       if (!body?.inputs) {
@@ -64,29 +66,86 @@ export default {
       });
     }
 
-    // ---------- SIMPLE UI ----------
+    // ---------- UI ----------
     return new Response(`
 <!doctype html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Image Generator</title>
+<style>
+body {
+  background:#111;
+  color:#fff;
+  font-family:system-ui,sans-serif;
+  padding:20px;
+}
+textarea {
+  width:100%;
+  height:180px;
+  background:#000;
+  color:#fff;
+  border:1px solid #444;
+  padding:10px;
+  font-size:16px;
+}
+button {
+  margin:6px 4px;
+  padding:10px 14px;
+  background:#222;
+  color:#fff;
+  border:1px solid #555;
+  border-radius:6px;
+}
+button:hover { background:#333; }
+#r img { max-width:100%; margin-top:20px; border-radius:8px; }
+.small { opacity:.7; font-size:14px; }
+</style>
 </head>
-<body style="background:#111;color:#fff;font-family:sans-serif;padding:20px">
+
+<body>
 <h2>Private Image Generator</h2>
 
-<textarea id="p" placeholder="Enter prompt..."
-style="width:100%;height:120px"></textarea><br><br>
+<div class="small">Style presets (text-only, HF safe):</div>
+<button onclick="setStyle('Semi-realistic, high detail, natural lighting')">Semi-Realistic</button>
+<button onclick="setStyle('Anime style, clean lines, vibrant colors')">Anime</button>
+<button onclick="setStyle('Cinematic lighting, dramatic composition')">Cinematic</button>
+
+<br><br>
+
+<div class="small">Character lock (face & body description):</div>
+<textarea id="char" placeholder="Describe the character to keep consistent (face, body, features)..."></textarea>
+
+<br><br>
+
+<div class="small">Prompt:</div>
+<textarea id="p" placeholder="Describe the scene, pose, outfit, environment..."></textarea>
+
+<br><br>
 
 <button onclick="go()">Generate</button>
-<div id="r" style="margin-top:20px"></div>
+
+<div id="r"></div>
 
 <script>
+let styleText = "";
+
+function setStyle(t){
+  styleText = t;
+}
+
 async function go(){
-  r.innerHTML = "Generating...";
+  r.innerHTML = "Generating…";
+
+  const fullPrompt =
+    (styleText ? styleText + ", " : "") +
+    (char.value ? "Same character: " + char.value + ". " : "") +
+    p.value;
+
   const res = await fetch('/generate',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({inputs:p.value})
+    body:JSON.stringify({ inputs: fullPrompt })
   });
 
   if(!res.ok){
@@ -96,11 +155,11 @@ async function go(){
 
   const img = document.createElement('img');
   img.src = URL.createObjectURL(await res.blob());
-  img.style.maxWidth = '100%';
   r.innerHTML = '';
   r.appendChild(img);
 }
 </script>
+
 </body>
 </html>
 `, { headers: { "Content-Type": "text/html" } });
