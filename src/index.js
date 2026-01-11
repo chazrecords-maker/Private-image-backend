@@ -48,6 +48,11 @@ export default {
       const charLock = form.get("charLock") === "on";
       const faceLock = form.get("faceLock") === "on";
       const refImage = form.get("reference");
+      const seedRaw = form.get("seed");
+
+      const seed = seedRaw && seedRaw !== ""
+        ? Number(seedRaw)
+        : undefined;
 
       const styleMap = {
         semi: "semi-realistic, ultra-detailed, cinematic lighting, high quality",
@@ -71,6 +76,10 @@ export default {
         hfForm.append("inputs", finalPrompt);
         hfForm.append("image", refImage);
 
+        if (seed !== undefined) {
+          hfForm.append("seed", seed.toString());
+        }
+
         hfResponse = await fetch(
           "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-refiner-1.0",
           {
@@ -82,6 +91,18 @@ export default {
           }
         );
       } else {
+        const body = {
+          inputs: finalPrompt,
+          parameters: {
+            width: 1024,
+            height: 1024
+          }
+        };
+
+        if (seed !== undefined) {
+          body.parameters.seed = seed;
+        }
+
         hfResponse = await fetch(
           "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
           {
@@ -90,13 +111,7 @@ export default {
               Authorization: `Bearer ${env.HF_TOKEN}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-              inputs: finalPrompt,
-              parameters: {
-                width: 1024,
-                height: 1024
-              }
-            })
+            body: JSON.stringify(body)
           }
         );
       }
@@ -153,6 +168,13 @@ style="width:100%;height:180px;font-size:16px"></textarea>
 
 <br><br>
 
+<b>Seed (optional)</b><br>
+<input id="seed" type="number"
+placeholder="Leave empty for random"
+style="width:100%;padding:6px">
+
+<br><br>
+
 <b>Reference Image (optional)</b><br>
 <input type="file" id="ref" accept="image/*">
 
@@ -174,6 +196,10 @@ async function go() {
   fd.append("style", document.querySelector('input[name="style"]:checked').value);
   fd.append("charLock", charLock.checked ? "on" : "off");
   fd.append("faceLock", faceLock.checked ? "on" : "off");
+
+  if (seed.value !== "") {
+    fd.append("seed", seed.value);
+  }
 
   if (ref.files.length > 0) {
     fd.append("reference", ref.files[0]);
