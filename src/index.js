@@ -38,8 +38,22 @@ export default {
         return new Response("Invalid JSON", { status: 400 });
       }
 
-      if (!body?.inputs) {
-        return new Response("Missing inputs", { status: 400 });
+      if (!body?.prompt) {
+        return new Response("Missing prompt", { status: 400 });
+      }
+
+      const styleMap = {
+        semi: "semi-realistic, highly detailed, natural lighting, realistic textures",
+        anime: "anime style, clean lineart, vibrant colors, detailed anime illustration",
+        cinematic: "cinematic lighting, ultra detailed, dramatic composition, photorealistic",
+      };
+
+      let finalPrompt = `${styleMap[body.style] || styleMap.semi}, ${body.prompt}`;
+
+      if (body.lock === true) {
+        finalPrompt =
+          "same character identity, consistent face, same body proportions, " +
+          finalPrompt;
       }
 
       const hf = await fetch(
@@ -51,7 +65,7 @@ export default {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            inputs: body.inputs,
+            inputs: finalPrompt,
             parameters: {
               width: 1024,
               height: 1024,
@@ -63,9 +77,8 @@ export default {
       );
 
       if (!hf.ok) {
-        const err = await hf.text();
         return new Response(
-          `HF ERROR:\n${err}`,
+          `HF ERROR:\n${await hf.text()}`,
           { status: 500 }
         );
       }
@@ -85,8 +98,20 @@ export default {
 <body style="background:#111;color:#fff;font-family:sans-serif;padding:20px">
 <h2>Private Image Generator</h2>
 
+<label>Style</label><br>
+<select id="style" style="width:100%;font-size:16px">
+  <option value="semi">Semi-Realistic</option>
+  <option value="anime">Anime</option>
+  <option value="cinematic">Cinematic</option>
+</select><br><br>
+
+<label>
+<input type="checkbox" id="lock">
+ Lock character (same face & body)
+</label><br><br>
+
 <textarea id="p" placeholder="Enter prompt..."
-style="width:100%;height:160px;font-size:16px"></textarea><br><br>
+style="width:100%;height:180px;font-size:16px"></textarea><br><br>
 
 <button onclick="go()" style="font-size:16px;padding:10px 20px">
 Generate
@@ -100,7 +125,11 @@ async function go(){
   const res = await fetch('/generate',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({inputs:p.value})
+    body:JSON.stringify({
+      prompt:p.value,
+      style:style.value,
+      lock:lock.checked
+    })
   });
 
   if(!res.ok){
