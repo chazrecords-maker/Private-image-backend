@@ -31,23 +31,60 @@ export default {
 
     // ---------- GENERATE ----------
     if (url.pathname === "/generate" && request.method === "POST") {
-      const body = await request.json().catch(() => null);
-      if (!body?.inputs) {
+      const form = await request.formData();
+      const prompt = form.get("prompt");
+      const seed = form.get("seed");
+      const refImage = form.get("reference");
+
+      if (!prompt) {
         return new Response("Missing prompt", { status: 400 });
       }
 
-      const hfPayload = {
-        inputs: body.inputs,
+      let hfPayload;
+      let hfHeaders = {
+        Authorization: `Bearer ${env.HF_TOKEN}`,
+      };
+
+      // ---------- IMAGE TO IMAGE ----------
+      if (refImage && refImage.size > 0) {
+        const arrayBuffer = await refImage.arrayBuffer();
+        hfPayload = new Uint8Array(arrayBuffer);
+
+        hfHeaders["Content-Type"] = refImage.type;
+        hfHeaders["X-Use-Cache"] = "false";
+        hfHeaders["X-Wait-For-Model"] = "true";
+
+        const hfUrl =
+          "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0?prompt=" +
+          encodeURIComponent(prompt) +
+          "&strength=0.35" +
+          (seed ? "&seed=" + seed : "");
+
+        const hf = await fetch(hfUrl, {
+          method: "POST",
+          headers: hfHeaders,
+          body: hfPayload,
+        });
+
+        if (!hf.ok) {
+          return new Response(`HF ERROR:\n${await hf.text()}`, { status: 500 });
+        }
+
+        return new Response(await hf.arrayBuffer(), {
+          headers: { "Content-Type": "image/png" },
+        });
+      }
+
+      // ---------- TEXT TO IMAGE ----------
+      const payload = {
+        inputs: prompt,
         parameters: {
           width: 1024,
           height: 1024,
         },
       };
 
-      // Seed pinning (identity lock)
-      if (body.seed !== undefined && body.seed !== "") {
-        hfPayload.parameters.seed = Number(body.seed);
-      }
+      if (seed) payload.parameters.seed = Number(seed);
 
       const hf = await fetch(
         "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
@@ -57,15 +94,12 @@ export default {
             Authorization: `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(hfPayload),
+          body: JSON.stringify(payload),
         }
       );
 
       if (!hf.ok) {
-        return new Response(
-          `HF ERROR:\n${await hf.text()}`,
-          { status: 500 }
-        );
+        return new Response(`HF ERROR:\n${await hf.text()}`, { status: 500 });
       }
 
       return new Response(await hf.arrayBuffer(), {
@@ -81,112 +115,78 @@ export default {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Image Generator</title>
 <style>
-body {
-  background:#111;
-  color:#fff;
-  font-family:sans-serif;
-  padding:20px;
-}
-button {
-  padding:10px 14px;
-  margin:6px 4px;
-  border:none;
-  border-radius:6px;
-  background:#333;
-  color:#fff;
-}
-button.active {
-  background:#4caf50;
-}
-textarea, input {
-  width:100%;
-  margin-top:10px;
-  padding:10px;
-  font-size:16px;
-}
-#result img {
-  max-width:100%;
-  margin-top:20px;
-  border-radius:8px;
-}
-.toggle {
-  margin-top:10px;
-}
+body { background:#111; color:#fff; font-family:sans-serif; padding:20px; }
+button { padding:10px; margin:6px; border-radius:6px; background:#333; color:#fff; border:none; }
+button.active { background:#4caf50; }
+textarea, input { width:100%; padding:10px; margin-top:10px; font-size:16px; }
+#result img { max-width:100%; margin-top:20px; border-radius:8px; }
 </style>
 </head>
-
 <body>
+
 <h2>Private Image Generator</h2>
 
-<div>
-<b>Style:</b><br>
+<b>Style</b><br>
 <button onclick="setStyle('semi')">Semi-Realistic</button>
-<button onclick="setStyle('cinematic')">Cinematic</button>
 <button onclick="setStyle('photo')">Photorealistic</button>
+<button onclick="setStyle('cinematic')">Cinematic</button>
 <button onclick="setStyle('anime')">Anime</button>
-</div>
 
 <textarea id="prompt" placeholder="Describe the image..."></textarea>
 
-<div class="toggle">
 <label>
-<input type="checkbox" id="lockFace">
- Lock face & body (pose may change)
+<input type="checkbox" id="lock">
+ Lock face & body
 </label>
-</div>
 
-<input id="seed" placeholder="Seed (optional — e.g. 777)" />
+<input id="seed" placeholder="Seed (optional, e.g. 777)" />
 
-<button style="margin-top:14px;width:100%;font-size:18px" onclick="go()">Generate</button>
+<label style="margin-top:10px;display:block">
+Reference Image (optional):
+<input type="file" id="ref" accept="image/*">
+</label>
+
+<button style="width:100%;margin-top:14px;font-size:18px" onclick="go()">Generate</button>
 
 <div id="result"></div>
 
 <script>
 let styleText = "";
-
 const styles = {
-  semi: "semi-realistic, high detail, natural lighting, consistent facial features, proportional anatomy",
-  cinematic: "cinematic lighting, dramatic shadows, film still, consistent character identity",
-  photo: "photorealistic, sharp focus, DSLR, consistent face and body",
-  anime: "anime style, clean lineart, consistent character design"
+  semi: "semi-realistic, consistent face, proportional anatomy",
+  photo: "photorealistic, DSLR, same character identity",
+  cinematic: "cinematic lighting, film still, same face",
+  anime: "anime style, consistent character design"
 };
 
-function setStyle(key) {
-  styleText = styles[key];
-  document.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+function setStyle(k){
+  styleText = styles[k];
+  document.querySelectorAll("button").forEach(b=>b.classList.remove("active"));
   event.target.classList.add("active");
 }
 
-async function go() {
-  const p = prompt.value.trim();
-  if (!p) return alert("Enter a prompt");
+async function go(){
+  let p = prompt.value.trim();
+  if(!p) return alert("Enter a prompt");
 
-  let finalPrompt = styleText ? styleText + ", " + p : p;
+  if(styleText) p = styleText + ", " + p;
+  if(lock.checked) p = "same character, same face, same body, " + p;
 
-  if (lockFace.checked) {
-    finalPrompt =
-      "same character, same face, same body structure, identity consistency, " +
-      finalPrompt;
-  }
+  const fd = new FormData();
+  fd.append("prompt", p);
+  fd.append("seed", seed.value);
+  if(ref.files[0]) fd.append("reference", ref.files[0]);
 
-  result.innerHTML = "Generating...";
+  result.innerHTML = "Generating…";
 
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      inputs: finalPrompt,
-      seed: seed.value
-    })
-  });
-
-  if (!res.ok) {
-    result.innerText = await res.text();
+  const r = await fetch("/generate", { method:"POST", body:fd });
+  if(!r.ok){
+    result.innerText = await r.text();
     return;
   }
 
   const img = document.createElement("img");
-  img.src = URL.createObjectURL(await res.blob());
+  img.src = URL.createObjectURL(await r.blob());
   result.innerHTML = "";
   result.appendChild(img);
 }
