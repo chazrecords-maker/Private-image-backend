@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // ---------- BASIC AUTH ----------
+    /* ---------------- BASIC AUTH ---------------- */
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
@@ -16,7 +16,7 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // ---------- HEALTH ----------
+    /* ---------------- HEALTH ---------------- */
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
@@ -29,62 +29,25 @@ export default {
       );
     }
 
-    // ---------- GENERATE ----------
+    /* ---------------- GENERATE ---------------- */
     if (url.pathname === "/generate" && request.method === "POST") {
-      const form = await request.formData();
-      const prompt = form.get("prompt");
-      const seed = form.get("seed");
-      const refImage = form.get("reference");
-
-      if (!prompt) {
+      const body = await request.json().catch(() => null);
+      if (!body?.prompt) {
         return new Response("Missing prompt", { status: 400 });
       }
 
-      let hfPayload;
-      let hfHeaders = {
-        Authorization: `Bearer ${env.HF_TOKEN}`,
+      const parameters = {
+        width: 1024,
+        height: 1024,
       };
 
-      // ---------- IMAGE TO IMAGE ----------
-      if (refImage && refImage.size > 0) {
-        const arrayBuffer = await refImage.arrayBuffer();
-        hfPayload = new Uint8Array(arrayBuffer);
-
-        hfHeaders["Content-Type"] = refImage.type;
-        hfHeaders["X-Use-Cache"] = "false";
-        hfHeaders["X-Wait-For-Model"] = "true";
-
-        const hfUrl =
-          "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0?prompt=" +
-          encodeURIComponent(prompt) +
-          "&strength=0.35" +
-          (seed ? "&seed=" + seed : "");
-
-        const hf = await fetch(hfUrl, {
-          method: "POST",
-          headers: hfHeaders,
-          body: hfPayload,
-        });
-
-        if (!hf.ok) {
-          return new Response(`HF ERROR:\n${await hf.text()}`, { status: 500 });
-        }
-
-        return new Response(await hf.arrayBuffer(), {
-          headers: { "Content-Type": "image/png" },
-        });
+      if (body.seed !== "") {
+        parameters.seed = Number(body.seed);
       }
 
-      // ---------- TEXT TO IMAGE ----------
-      const payload = {
-        inputs: prompt,
-        parameters: {
-          width: 1024,
-          height: 1024,
-        },
-      };
-
-      if (seed) payload.parameters.seed = Number(seed);
+      if (body.reference) {
+        parameters.image = body.reference;
+      }
 
       const hf = await fetch(
         "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
@@ -94,7 +57,10 @@ export default {
             Authorization: `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            inputs: body.prompt,
+            parameters,
+          }),
         }
       );
 
@@ -107,7 +73,7 @@ export default {
       });
     }
 
-    // ---------- UI ----------
+    /* ---------------- UI ---------------- */
     return new Response(`
 <!doctype html>
 <html>
@@ -115,83 +81,128 @@ export default {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Image Generator</title>
 <style>
-body { background:#111; color:#fff; font-family:sans-serif; padding:20px; }
-button { padding:10px; margin:6px; border-radius:6px; background:#333; color:#fff; border:none; }
-button.active { background:#4caf50; }
-textarea, input { width:100%; padding:10px; margin-top:10px; font-size:16px; }
-#result img { max-width:100%; margin-top:20px; border-radius:8px; }
+body { background:#111;color:#fff;font-family:sans-serif;padding:20px }
+textarea,input,select,button { width:100%;margin-top:10px;padding:10px;font-size:16px }
+button { background:#333;color:#fff;border:none;border-radius:6px }
+button.active { background:#4caf50 }
+img { max-width:100%;margin-top:20px;border-radius:8px }
+.small { font-size:13px;opacity:.8 }
 </style>
 </head>
-<body>
 
+<body>
 <h2>Private Image Generator</h2>
 
-<b>Style</b><br>
-<button onclick="setStyle('semi')">Semi-Realistic</button>
-<button onclick="setStyle('photo')">Photorealistic</button>
-<button onclick="setStyle('cinematic')">Cinematic</button>
-<button onclick="setStyle('anime')">Anime</button>
+<label>Character Profile</label>
+<select id="profile"></select>
+<button onclick="saveProfile()">Save Profile</button>
+<button onclick="deleteProfile()">Delete Profile</button>
 
-<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<label class="small">Reference Image (optional)</label>
+<input type="file" id="ref" accept="image/*">
+
+<label>Seed (optional – same number = same face)</label>
+<input id="seed" placeholder="e.g. 777">
 
 <label>
-<input type="checkbox" id="lock">
- Lock face & body
+<input type="checkbox" id="lock"> Lock face & body (pose may change)
 </label>
 
-<input id="seed" placeholder="Seed (optional, e.g. 777)" />
+<label>Style</label>
+<select id="style">
+<option value="">None</option>
+<option value="semi">Semi-Realistic</option>
+<option value="cinematic">Cinematic</option>
+<option value="photo">Photorealistic</option>
+<option value="anime">Anime</option>
+</select>
 
-<label style="margin-top:10px;display:block">
-Reference Image (optional):
-<input type="file" id="ref" accept="image/*">
-</label>
-
-<button style="width:100%;margin-top:14px;font-size:18px" onclick="go()">Generate</button>
+<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<button onclick="generate()">Generate</button>
 
 <div id="result"></div>
 
 <script>
-let styleText = "";
 const styles = {
-  semi: "semi-realistic, consistent face, proportional anatomy",
-  photo: "photorealistic, DSLR, same character identity",
-  cinematic: "cinematic lighting, film still, same face",
-  anime: "anime style, consistent character design"
+  semi: "semi-realistic, consistent facial features, proportional anatomy",
+  cinematic: "cinematic lighting, dramatic shadows, film still",
+  photo: "photorealistic, sharp focus, DSLR",
+  anime: "anime style, clean lineart, consistent character design"
 };
 
-function setStyle(k){
-  styleText = styles[k];
-  document.querySelectorAll("button").forEach(b=>b.classList.remove("active"));
-  event.target.classList.add("active");
+let profiles = JSON.parse(localStorage.getItem("profiles") || "{}");
+
+function refreshProfiles(){
+  profile.innerHTML = "<option value=''>New Character</option>";
+  Object.keys(profiles).forEach(k=>{
+    const o=document.createElement("option");
+    o.value=k;o.textContent=k;
+    profile.appendChild(o);
+  });
+}
+refreshProfiles();
+
+profile.onchange=()=>{
+  const p=profiles[profile.value];
+  if(!p)return;
+  seed.value=p.seed||"";
+  lock.checked=p.lock||false;
+};
+
+function saveProfile(){
+  const name=prompt("Character name?");
+  if(!name)return;
+  profiles[name]={
+    seed:seed.value,
+    lock:lock.checked
+  };
+  localStorage.setItem("profiles",JSON.stringify(profiles));
+  refreshProfiles();
+  profile.value=name;
 }
 
-async function go(){
-  let p = prompt.value.trim();
-  if(!p) return alert("Enter a prompt");
+function deleteProfile(){
+  if(!profile.value)return;
+  delete profiles[profile.value];
+  localStorage.setItem("profiles",JSON.stringify(profiles));
+  refreshProfiles();
+}
 
-  if(styleText) p = styleText + ", " + p;
-  if(lock.checked) p = "same character, same face, same body, " + p;
+async function generate(){
+  let p=prompt.value.trim();
+  if(!p)return;
 
-  const fd = new FormData();
-  fd.append("prompt", p);
-  fd.append("seed", seed.value);
-  if(ref.files[0]) fd.append("reference", ref.files[0]);
+  if(style.value) p = styles[style.value]+", "+p;
+  if(lock.checked) p = "same character, same face, same body structure, "+p;
 
-  result.innerHTML = "Generating…";
+  let refData=null;
+  if(ref.files[0]){
+    const b=await ref.files[0].arrayBuffer();
+    refData = btoa(String.fromCharCode(...new Uint8Array(b)));
+  }
 
-  const r = await fetch("/generate", { method:"POST", body:fd });
+  result.innerHTML="Generating...";
+  const r = await fetch("/generate",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({
+      prompt:p,
+      seed:seed.value,
+      reference:refData
+    })
+  });
+
   if(!r.ok){
-    result.innerText = await r.text();
+    result.innerText=await r.text();
     return;
   }
 
-  const img = document.createElement("img");
-  img.src = URL.createObjectURL(await r.blob());
-  result.innerHTML = "";
+  const img=document.createElement("img");
+  img.src=URL.createObjectURL(await r.blob());
+  result.innerHTML="";
   result.appendChild(img);
 }
 </script>
-
 </body>
 </html>
 `, { headers: { "Content-Type": "text/html" } });
