@@ -2,14 +2,12 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* =======================
-       BASIC AUTH
-    ======================= */
+    // ---------- BASIC AUTH ----------
     const auth = request.headers.get("Authorization");
     if (!auth || !auth.startsWith("Basic ")) {
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' }
+        headers: { "WWW-Authenticate": 'Basic realm="Private Image App"' },
       });
     }
 
@@ -18,253 +16,147 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    /* =======================
-       HEALTH
-    ======================= */
+    // ---------- HEALTH ----------
     if (url.pathname === "/health") {
       return new Response(
         JSON.stringify({
           status: "OK",
           hasUser: !!env.APP_USER,
           hasPass: !!env.APP_PASS,
-          hasHF: !!env.HF_TOKEN
+          hasHF: !!env.HF_TOKEN,
         }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
-    /* =======================
-       GENERATE
-    ======================= */
+    // ---------- GENERATE ----------
     if (url.pathname === "/generate" && request.method === "POST") {
-      const form = await request.formData();
-
-      const promptText = form.get("prompt");
-      if (!promptText) {
+      const body = await request.json().catch(() => null);
+      if (!body?.inputs) {
         return new Response("Missing prompt", { status: 400 });
       }
 
-      const style = form.get("style") || "semi";
-      const charLock = form.get("charLock") === "on";
-      const faceLock = form.get("faceLock") === "on";
-      const refImage = form.get("reference");
-      const seedRaw = form.get("seed");
-
-      const seed = seedRaw && seedRaw !== ""
-        ? Number(seedRaw)
-        : undefined;
-
-      const styleMap = {
-        semi: "semi-realistic, ultra-detailed, cinematic lighting, high quality",
-        anime: "anime style, clean lineart, vibrant colors, detailed illustration"
-      };
-
-      let finalPrompt = styleMap[style] + ", " + promptText;
-
-      if (charLock) {
-        finalPrompt +=
-          ", same face, same facial features, same body proportions, consistent character identity";
-      } else if (faceLock) {
-        finalPrompt +=
-          ", same face, same facial structure, same eyes, same nose, same mouth, facial consistency only, body and pose may vary";
-      }
-
-      let hfResponse;
-
-      if (refImage && refImage instanceof File && refImage.size > 0) {
-        const hfForm = new FormData();
-        hfForm.append("inputs", finalPrompt);
-        hfForm.append("image", refImage);
-
-        if (seed !== undefined) {
-          hfForm.append("seed", seed.toString());
-        }
-
-        hfResponse = await fetch(
-          "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-refiner-1.0",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${env.HF_TOKEN}`
+      const hf = await fetch(
+        "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.HF_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            inputs: body.inputs,
+            parameters: {
+              width: 1024,
+              height: 1024,
             },
-            body: hfForm
-          }
-        );
-      } else {
-        const body = {
-          inputs: finalPrompt,
-          parameters: {
-            width: 1024,
-            height: 1024
-          }
-        };
-
-        if (seed !== undefined) {
-          body.parameters.seed = seed;
+          }),
         }
+      );
 
-        hfResponse = await fetch(
-          "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${env.HF_TOKEN}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-          }
-        );
-      }
-
-      if (!hfResponse.ok) {
+      if (!hf.ok) {
         return new Response(
-          "HF ERROR:\n" + await hfResponse.text(),
+          `HF ERROR:\n${await hf.text()}`,
           { status: 500 }
         );
       }
 
-      return new Response(await hfResponse.arrayBuffer(), {
-        headers: { "Content-Type": "image/png" }
+      return new Response(await hf.arrayBuffer(), {
+        headers: { "Content-Type": "image/png" },
       });
     }
 
-    /* =======================
-       MOBILE-POLISHED UI
-    ======================= */
+    // ---------- UI ----------
     return new Response(`
 <!doctype html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Image Generator</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <style>
 body {
-  margin: 0;
-  background: #0b0b0b;
-  color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-}
-.container {
-  max-width: 640px;
-  margin: auto;
-  padding: 16px;
-}
-.card {
-  background: #151515;
-  border-radius: 14px;
-  padding: 16px;
-  margin-bottom: 14px;
-}
-h2 {
-  text-align: center;
-  margin-bottom: 12px;
-}
-textarea, input[type="number"] {
-  width: 100%;
-  font-size: 16px;
-  padding: 12px;
-  border-radius: 10px;
-  border: none;
-  background: #0f0f0f;
-  color: #fff;
-}
-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0;
-  font-size: 16px;
-}
-input[type="radio"], input[type="checkbox"] {
-  transform: scale(1.2);
+  background:#111;
+  color:#fff;
+  font-family:sans-serif;
+  padding:20px;
 }
 button {
-  width: 100%;
-  padding: 16px;
-  font-size: 18px;
-  border-radius: 14px;
-  border: none;
-  background: #2563eb;
-  color: #fff;
+  padding:10px 14px;
+  margin:6px 4px;
+  border:none;
+  border-radius:6px;
+  background:#333;
+  color:#fff;
 }
-button:active {
-  opacity: 0.85;
+button.active {
+  background:#4caf50;
+}
+textarea {
+  width:100%;
+  height:160px;
+  margin-top:12px;
+  padding:10px;
+  font-size:16px;
 }
 #result img {
-  width: 100%;
-  border-radius: 14px;
-  margin-top: 12px;
-}
-.sticky {
-  position: sticky;
-  bottom: 12px;
+  max-width:100%;
+  margin-top:20px;
+  border-radius:8px;
 }
 </style>
 </head>
 
 <body>
-<div class="container">
-
 <h2>Private Image Generator</h2>
 
-<div class="card">
-<textarea id="prompt" placeholder="Describe your image..."></textarea>
+<div>
+<b>Style Preset:</b><br>
+<button onclick="setStyle('semi')">Semi-Realistic</button>
+<button onclick="setStyle('cinematic')">Cinematic</button>
+<button onclick="setStyle('photo')">Photorealistic</button>
+<button onclick="setStyle('anime')">Anime</button>
+<button onclick="setStyle('illustration')">Illustration</button>
 </div>
 
-<div class="card">
-<b>Style</b>
-<label><input type="radio" name="style" value="semi" checked> Semi-Realistic</label>
-<label><input type="radio" name="style" value="anime"> Anime</label>
-</div>
+<textarea id="prompt" placeholder="Describe the image..."></textarea>
 
-<div class="card">
-<b>Consistency</b>
-<label>
-<input type="checkbox" id="charLock" onchange="if(this.checked) faceLock.checked=false">
- Character Lock
-</label>
-<label>
-<input type="checkbox" id="faceLock" onchange="if(this.checked) charLock.checked=false">
- Face-Only Lock
-</label>
-</div>
-
-<div class="card">
-<b>Seed (optional)</b>
-<input id="seed" type="number" placeholder="Leave empty for random">
-</div>
-
-<div class="card">
-<b>Reference Image (optional)</b>
-<input type="file" id="ref" accept="image/*">
-</div>
-
-<div class="sticky">
-<button onclick="go()">Generate</button>
-</div>
+<button style="margin-top:14px;width:100%;font-size:18px" onclick="go()">Generate</button>
 
 <div id="result"></div>
 
-</div>
-
 <script>
+let styleText = "";
+
+const styles = {
+  semi: "semi-realistic, high detail, natural lighting, realistic proportions",
+  cinematic: "cinematic lighting, dramatic shadows, ultra detailed, film still",
+  photo: "photorealistic, sharp focus, DSLR, ultra high resolution",
+  anime: "anime style, clean lineart, vibrant colors, detailed illustration",
+  illustration: "digital illustration, painterly, soft shading, detailed art"
+};
+
+function setStyle(key) {
+  styleText = styles[key];
+  document.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+  event.target.classList.add("active");
+}
+
 async function go() {
-  const result = document.getElementById("result");
-  result.innerHTML = "<div class='card'>Generating…</div>";
+  const p = document.getElementById("prompt").value.trim();
+  if (!p) return alert("Enter a prompt");
 
-  const fd = new FormData();
-  fd.append("prompt", prompt.value);
-  fd.append("style", document.querySelector('input[name="style"]:checked').value);
-  fd.append("charLock", charLock.checked ? "on" : "off");
-  fd.append("faceLock", faceLock.checked ? "on" : "off");
+  const finalPrompt = styleText ? styleText + ", " + p : p;
 
-  if (seed.value !== "") fd.append("seed", seed.value);
-  if (ref.files.length > 0) fd.append("reference", ref.files[0]);
+  result.innerHTML = "Generating...";
 
-  const res = await fetch("/generate", { method: "POST", body: fd });
+  const res = await fetch("/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inputs: finalPrompt })
+  });
 
   if (!res.ok) {
-    result.innerHTML = "<div class='card'>" + await res.text() + "</div>";
+    result.innerText = await res.text();
     return;
   }
 
@@ -278,5 +170,5 @@ async function go() {
 </body>
 </html>
 `, { headers: { "Content-Type": "text/html" } });
-  }
+  },
 };
