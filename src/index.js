@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     // -----------------------
-    // HEALTH CHECK
+    // HEALTH
     // -----------------------
     if (url.pathname === "/health") {
       return new Response(
@@ -36,71 +36,64 @@ export default {
     }
 
     // -----------------------
-    // SIMPLE PRIVATE UI
+    // UI
     // -----------------------
     if (url.pathname === "/" && request.method === "GET") {
       return new Response(
-        `
-<!doctype html>
+`<!doctype html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Private Image Generator</title>
-  <style>
-    body { font-family: system-ui; padding: 20px; background:#111; color:#fff; }
-    textarea { width:100%; height:140px; font-size:16px; }
-    button { margin-top:10px; padding:12px; font-size:16px; }
-    img { margin-top:20px; max-width:100%; border-radius:8px; }
-  </style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Image Generator</title>
+<style>
+body{font-family:system-ui;background:#111;color:#fff;padding:20px}
+textarea{width:100%;height:140px;font-size:16px}
+button{margin-top:10px;padding:12px;font-size:16px}
+pre{white-space:pre-wrap;background:#222;padding:10px;border-radius:6px}
+img{margin-top:15px;max-width:100%}
+</style>
 </head>
 <body>
-  <h2>Private Image Generator</h2>
-  <textarea id="prompt" placeholder="Describe the image..."></textarea>
-  <br/>
-  <button onclick="generate()">Generate</button>
-  <div id="out"></div>
+<h2>Private Image Generator (Debug)</h2>
+<textarea id="prompt" placeholder="Describe the image..."></textarea>
+<br>
+<button onclick="gen()">Generate</button>
+<div id="out"></div>
 
 <script>
-async function generate() {
-  const p = document.getElementById("prompt").value;
-  document.getElementById("out").innerHTML = "Generating…";
-
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: p
-  });
-
-  if (!res.ok) {
-    document.getElementById("out").innerText = "Generation failed";
+async function gen(){
+  const p=document.getElementById("prompt").value;
+  document.getElementById("out").innerHTML="Generating…";
+  const r=await fetch("/generate",{method:"POST",headers:{"Content-Type":"text/plain"},body:p});
+  const ct=r.headers.get("content-type")||"";
+  if(!r.ok){
+    document.getElementById("out").innerHTML="<pre>"+await r.text()+"</pre>";
     return;
   }
-
-  const blob = await res.blob();
-  const img = document.createElement("img");
-  img.src = URL.createObjectURL(blob);
-  document.getElementById("out").innerHTML = "";
-  document.getElementById("out").appendChild(img);
+  if(ct.includes("image")){
+    const b=await r.blob();
+    const i=document.createElement("img");
+    i.src=URL.createObjectURL(b);
+    document.getElementById("out").innerHTML="";
+    document.getElementById("out").appendChild(i);
+  }else{
+    document.getElementById("out").innerHTML="<pre>"+await r.text()+"</pre>";
+  }
 }
 </script>
 </body>
-</html>
-        `,
+</html>`,
         { headers: { "Content-Type": "text/html" } }
       );
     }
 
     // -----------------------
-    // GENERATE IMAGE
+    // GENERATE
     // -----------------------
     if (url.pathname === "/generate" && request.method === "POST") {
-      const promptText = await request.text();
+      const prompt = await request.text();
 
-      if (!promptText || promptText.trim().length < 3) {
-        return new Response("Invalid prompt", { status: 400 });
-      }
-
-      const hfRes = await fetch(
+      const hf = await fetch(
         "https://router.huggingface.co/models/stabilityai/sdxl-turbo",
         {
           method: "POST",
@@ -108,26 +101,29 @@ async function generate() {
             "Authorization": `Bearer ${env.HF_TOKEN}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            inputs: promptText
-          })
+          body: JSON.stringify({ inputs: prompt })
         }
       );
 
-      if (!hfRes.ok) {
+      const contentType = hf.headers.get("content-type") || "";
+
+      if (!hf.ok) {
+        const errText = await hf.text();
         return new Response(
-          "HF ERROR",
+          "HF ERROR (" + hf.status + "):\n" + errText,
           { status: 500 }
         );
       }
 
-      const imageBytes = await hfRes.arrayBuffer();
+      if (!contentType.includes("image")) {
+        return new Response(
+          "HF RETURNED NON-IMAGE:\n" + await hf.text(),
+          { status: 500 }
+        );
+      }
 
-      return new Response(imageBytes, {
-        headers: {
-          "Content-Type": "image/png",
-          "Cache-Control": "no-store"
-        }
+      return new Response(await hf.arrayBuffer(), {
+        headers: { "Content-Type": contentType }
       });
     }
 
